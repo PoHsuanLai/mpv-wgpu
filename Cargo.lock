@@ -924,6 +924,7 @@ dependencies = [
  "bytemuck",
  "env_logger",
  "log",
+ "naga",
  "pollster",
  "rsmpv",
  "thiserror 2.0.21",

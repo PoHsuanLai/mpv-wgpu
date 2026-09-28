@@ -9,9 +9,9 @@ use crate::types::{Error, SlotSize};
 struct VideoParams {
     /// Three columns of a mat3, each padded to 16 bytes (WGSL uniform layout).
     grade: [[f32; 4]; 3],
-    bias: [f32; 4],
+    /// Packed against `gamma_exp`. A `vec3` is 12 bytes; the following `f32` sits at byte 60.
+    bias: [f32; 3],
     gamma_exp: f32,
-    _pad: [f32; 3],
 }
 
 impl VideoParams {
@@ -23,9 +23,8 @@ impl VideoParams {
                 [m[3], m[4], m[5], 0.0],
                 [m[6], m[7], m[8], 0.0],
             ],
-            bias: [grade.bias[0], grade.bias[1], grade.bias[2], 0.0],
+            bias: grade.bias,
             gamma_exp: grade.gamma_exp,
-            _pad: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -234,11 +233,13 @@ impl Gpu {
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&params));
     }
 
-    pub fn rebind(&mut self, device: &wgpu::Device, pipeline: &Pipeline) {
+    /// Point the equalizer pass at `index`. Call this with the plane just written,
+    /// then advance [`Gpu::upload`] to the other plane for the next write.
+    pub fn rebind(&mut self, device: &wgpu::Device, pipeline: &Pipeline, index: Upload) {
         self.bind_group = bind_group(
             device,
             pipeline,
-            &self.uploads[self.upload.index()].view,
+            &self.uploads[index.index()].view,
             &self.uniform,
         );
     }
@@ -329,7 +330,50 @@ mod tests {
 
     #[test]
     fn uniform_matches_wgsl_layout() {
-        assert_eq!(std::mem::size_of::<VideoParams>(), 80);
+        let source = include_str!("shaders/video.wgsl");
+        let module = naga::front::wgsl::parse_str(source).expect("shader parses");
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::default(),
+        )
+        .validate(&module)
+        .expect("shader validates");
+        let params = module
+            .types
+            .iter()
+            .find_map(|(_, ty)| match &ty.inner {
+                naga::TypeInner::Struct { members, span } if ty.name.as_deref() == Some("VideoParams") => {
+                    Some((members, *span))
+                }
+                _ => None,
+            })
+            .expect("VideoParams struct");
+        let (members, span) = params;
+        let _ = info;
+        let gamma = members
+            .iter()
+            .find(|member| member.name.as_deref() == Some("gamma_exp"))
+            .expect("gamma_exp");
+        let bias = members
+            .iter()
+            .find(|member| member.name.as_deref() == Some("bias"))
+            .expect("bias");
+        assert_eq!(bias.offset, 48);
+        assert_eq!(gamma.offset, 60);
+        assert_eq!(span, 64);
+        assert_eq!(std::mem::size_of::<VideoParams>(), span as usize);
+        assert_eq!(
+            std::mem::offset_of!(VideoParams, gamma_exp),
+            gamma.offset as usize
+        );
+        assert_eq!(std::mem::offset_of!(VideoParams, bias), bias.offset as usize);
         assert_eq!(std::mem::align_of::<VideoParams>(), 16);
+    }
+
+    #[test]
+    fn next_upload_is_the_plane_not_being_sampled() {
+        use super::Upload;
+        assert!(matches!(Upload::Front.flip(), Upload::Back));
+        assert!(matches!(Upload::Back.flip(), Upload::Front));
     }
 }

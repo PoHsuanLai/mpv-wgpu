@@ -324,7 +324,7 @@ impl Player {
             ("hue", equalizer.hue.get()),
         ] {
             let numeric = if name == "hue" {
-                f64::from(value) * 100.0 / 180.0
+                hue_to_mpv(value)
             } else {
                 f64::from(value)
             };
@@ -478,9 +478,8 @@ impl Player {
                 }
             }
             "hue" => {
-                if let Some(value) = rounded(&data) {
-                    let degrees = (f64::from(value) * 180.0 / 100.0).round() as i32;
-                    let hue = crate::types::Hue::new(degrees);
+                if let Some(value) = property_f64(&data) {
+                    let hue = hue_degrees_from_mpv(value);
                     if shared.equalizer.hue != hue {
                         shared.equalizer.hue = hue;
                         shared.grade = Freshness::Dirty;
@@ -588,13 +587,14 @@ impl Player {
             self.stats.frames = self.stats.frames.saturating_add(1);
         }
         let grade = equalizer::bake(equalizer, coefficients);
+        if software && let Stage::Live { gpu, .. } = &mut self.stage {
+            let written = gpu.upload;
+            gpu.rebind(&self.device, &self.pipeline, written);
+            gpu.upload = written.flip();
+        }
         if let Stage::Live { gpu, .. } = &self.stage {
             gpu.write_grade(&self.queue, grade);
             gpu.draw(&self.device, &self.queue, &self.pipeline);
-        }
-        if software && let Stage::Live { gpu, .. } = &mut self.stage {
-            gpu.upload = gpu.upload.flip();
-            gpu.rebind(&self.device, &self.pipeline);
         }
         if let Stage::Live { shown, .. } = &mut self.stage {
             *shown = Shown::Current;
@@ -686,6 +686,24 @@ fn finite_data(data: &PropertyData) -> Option<Finite> {
     }
 }
 
+/// mpv's `hue` property is −100..=100. The public value is degrees, −180..=180.
+pub(crate) fn hue_to_mpv(degrees: i32) -> f64 {
+    f64::from(degrees) * 100.0 / 180.0
+}
+
+/// Invert a raw mpv hue echo. Round only after scaling back to degrees.
+pub(crate) fn hue_degrees_from_mpv(value: f64) -> crate::types::Hue {
+    crate::types::Hue::new((value * 180.0 / 100.0).round() as i32)
+}
+
+fn property_f64(data: &PropertyData) -> Option<f64> {
+    match data {
+        PropertyData::Double(value) if value.is_finite() => Some(*value),
+        PropertyData::Int64(value) => Some(*value as f64),
+        _ => None,
+    }
+}
+
 fn rounded(data: &PropertyData) -> Option<i32> {
     match data {
         PropertyData::Double(value) if value.is_finite() => Some(value.round() as i32),
@@ -724,4 +742,21 @@ fn ryu_like(value: f64) -> String {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hue_degrees_from_mpv, hue_to_mpv};
+
+    #[test]
+    fn hue_echo_round_trips_degrees() {
+        for degrees in [0, 1, 10, -10, 90, -90, 180, -180] {
+            let echoed = hue_to_mpv(degrees);
+            assert_eq!(
+                hue_degrees_from_mpv(echoed).get(),
+                degrees,
+                "mpv echo {echoed} for {degrees} degrees"
+            );
+        }
+    }
 }
