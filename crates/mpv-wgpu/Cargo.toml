@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.87"
 description = "Draw caller-owned YUV or RGBA pictures into a caller-owned wgpu texture"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/PoHsuanLai/mpv-wgpu"
 readme = "README.md"
 keywords = ["wgpu", "video", "yuv", "graphics"]
 categories = ["multimedia::video", "graphics", "rendering"]

@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.87"
 description = "Headless libmpv playback into a caller-owned wgpu texture"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/PoHsuanLai/mpv-wgpu"
 readme = "README.md"
 keywords = ["mpv", "libmpv", "wgpu", "video"]
 categories = ["multimedia::video", "api-bindings"]
