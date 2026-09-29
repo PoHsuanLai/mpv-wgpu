@@ -11,10 +11,12 @@
 #![deny(clippy::unwrap_used)]
 
 mod color;
+mod cubic;
 mod equalizer;
 mod frame_buffer;
 mod pipeline;
 mod player;
+mod present;
 mod types;
 
 pub use player::Player;
