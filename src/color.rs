@@ -214,6 +214,27 @@ pub fn normalize_code(code: u32, bits: u32) -> f32 {
     code as f32 / peak
 }
 
+/// Bilinear sample. Integer `n` is the center of texel `n`. Out-of-range taps clamp.
+pub fn sample_bilinear(texels: &[f32], width: u32, height: u32, x: f32, y: f32) -> f32 {
+    if width == 0 || height == 0 || texels.is_empty() {
+        return 0.0;
+    }
+    let x0 = x.floor() as i32;
+    let y0 = y.floor() as i32;
+    let fx = x - x0 as f32;
+    let fy = y - y0 as f32;
+    let at = |ix: i32, iy: i32| -> f32 {
+        let ix = ix.clamp(0, width as i32 - 1) as u32;
+        let iy = iy.clamp(0, height as i32 - 1) as u32;
+        texels[(iy * width + ix) as usize]
+    };
+    let a = at(x0, y0);
+    let b = at(x0 + 1, y0);
+    let c = at(x0, y0 + 1);
+    let d = at(x0 + 1, y0 + 1);
+    a * (1.0 - fx) * (1.0 - fy) + b * fx * (1.0 - fy) + c * (1.0 - fx) * fy + d * fx * fy
+}
+
 /// Display-referred YUV sample, then the transfer, as linear light (1 = 100 nits).
 pub fn decode_linear(
     space: Coefficients,
@@ -344,7 +365,11 @@ mod tests {
 
     #[test]
     fn matrices_round_trip_a_neutral_pixel() {
-        for space in [Coefficients::Bt601, Coefficients::Bt709, Coefficients::Bt2020] {
+        for space in [
+            Coefficients::Bt601,
+            Coefficients::Bt709,
+            Coefficients::Bt2020,
+        ] {
             let forward = yuv_to_rgb(space);
             let back = rgb_to_yuv(space);
             let rgb = mul_vec(forward, [0.4, 0.1, -0.2]);
@@ -404,6 +429,14 @@ mod tests {
         for channel in white {
             near(channel, 1.0);
         }
+    }
+
+    #[test]
+    fn bilinear_sample_blends_the_four_texels() {
+        let texels = [0.0, 1.0, 0.0, 0.0];
+        assert!((sample_bilinear(&texels, 2, 2, 0.0, 0.0) - 0.0).abs() <= 1.0e-6);
+        assert!((sample_bilinear(&texels, 2, 2, 1.0, 0.0) - 1.0).abs() <= 1.0e-6);
+        assert!((sample_bilinear(&texels, 2, 2, 0.5, 0.0) - 0.5).abs() <= 1.0e-6);
     }
 
     #[test]

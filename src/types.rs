@@ -321,6 +321,9 @@ pub enum Error {
     /// Creating a texture, buffer, or pipeline failed.
     #[error("gpu allocation failed")]
     Gpu,
+    /// The target texture format does not match the requested encoding.
+    #[error("target format does not match the encoding")]
+    Target,
 }
 
 /// Integer code from libmpv.

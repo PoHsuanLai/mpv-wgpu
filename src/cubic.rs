@@ -188,4 +188,22 @@ mod tests {
         assert_eq!(kind_for_axis(4, 2), CubicKind::Hermite);
         assert_eq!(kind_for_axis(4, 4), CubicKind::Hermite);
     }
+
+    #[test]
+    fn clockwise_quarter_turn_of_a_two_by_two() {
+        // Source rows `a b / c d` land on `c a / d b`.
+        let samples = [
+            (0, 0, 0.0, 1.0),
+            (1, 0, 0.0, 0.0),
+            (0, 1, 1.0, 1.0),
+            (1, 1, 1.0, 0.0),
+        ];
+        for (x, y, sx, sy) in samples {
+            let (got_x, got_y) = source_xy(x, y, 2, 2, 2, 2, QuarterTurn::D90);
+            assert!((got_x - sx).abs() <= 1.0e-5 && (got_y - sy).abs() <= 1.0e-5);
+            let (kind_x, kind_y) = axis_kinds(2, 2, 2, 2, QuarterTurn::D90);
+            assert_eq!(kind_x, CubicKind::Hermite);
+            assert_eq!(kind_y, CubicKind::Hermite);
+        }
+    }
 }
