@@ -1,37 +1,98 @@
 # mpv-wgpu-player
 
-Headless libmpv playback into a caller-owned wgpu texture.
+Headless libmpv playback into a caller-owned [wgpu](https://wgpu.rs/) texture.
 
-The host owns the `wgpu` device, the queue, the window, and the swapchain. libmpv decodes, plays audio, and burns subtitles into a packed RGB frame. [`Player::poll`](https://docs.rs/mpv-wgpu-player) uploads that frame. [`Player::picture`](https://docs.rs/mpv-wgpu-player) is a gamma-encoded `Rgba8Unorm` view with alpha 1 and a top-left origin. Sample it as non-sRGB data.
+The host owns the device, the queue, the window, and the swapchain. libmpv demuxes, decodes, plays audio, and burns subtitles into one packed RGB frame. `Player::poll` uploads that frame. `Player::picture` is a gamma-encoded `Rgba8Unorm` view, alpha 1, top-left origin. Sample it as non-sRGB data. An sRGB swapchain encodes those texels again.
 
-Picture-only drawing, with no libmpv dependency, is [`mpv-wgpu`](https://crates.io/crates/mpv-wgpu).
+Planes you already have, with no libmpv dependency, belong in [`mpv-wgpu`](https://github.com/PoHsuanLai/mpv-wgpu/tree/master/crates/mpv-wgpu). This player does not pass its RGB frame through that renderer. The frame is already composited at the slot size.
+
+```toml
+mpv-wgpu-player = "0.1"
+```
+
+```sh
+cargo doc --open -p mpv-wgpu-player
+```
 
 ## System requirement
 
-The build links libmpv. `pkg-config` must find the `mpv` module, which means the libmpv development files are installed. This crate does not bundle mpv.
+The build links libmpv. `pkg-config` must find the `mpv` module, so the libmpv development files have to be installed. This crate does not bundle mpv.
 
-docs.rs images do not ship libmpv, so the rendered docs for this crate can fail there. `mpv-wgpu` documents without that library.
+```sh
+# Debian or Ubuntu
+sudo apt-get install pkg-config libmpv-dev
+```
 
-## Example
+docs.rs images do not ship libmpv, so rendered docs for this crate can fail there. `mpv-wgpu` documents without that library.
+
+## Playback
+
+`Player::new` starts an idle core. `set_slot` is the physical pixel rectangle libmpv scales and letterboxes into. `load` takes a path or any URL mpv accepts. `poll` drains events, uploads a new software frame when there is one, and submits the blit. Call `poll` on the thread that presents.
+
+`set_notify` registers a `Fn() + Send + Sync` wake. It may run on an mpv thread and must only wake the host. A wake that arrives before the closure is registered is remembered. `Player` is `Send` and not `Sync`.
 
 ```rust
 use std::num::NonZeroU32;
 
-use mpv_wgpu_player::{Picture, Player, Slot, SlotSize};
+use mpv_wgpu_player::{Event, Picture, Player, Slot, SlotSize};
 
-let mut player = Player::new(&device, &queue)?;
-player.set_slot(Slot::Sized(SlotSize {
-    width: NonZeroU32::new(1280).unwrap(),
-    height: NonZeroU32::new(720).unwrap(),
-}))?;
-player.load(path)?;
-player.poll()?;
-if let Picture::Shown(view) = player.picture() {
-    let _view = view;
+fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
+    let mut player = Player::new(device, queue)?;
+    player.set_notify(|| {
+        // Wake the host thread. Do not call into the player from here.
+    });
+    player.set_slot(Slot::Sized(SlotSize {
+        width: NonZeroU32::new(1280).expect("non-zero"),
+        height: NonZeroU32::new(720).expect("non-zero"),
+    }))?;
+    player.load(path)?;
+    let outcome = player.poll()?;
+    let _presentation = outcome.presentation;
+    for event in player.events() {
+        if let Event::Loaded = event {
+            let _duration = player.duration();
+        }
+    }
+    if let Picture::Shown(view) = player.picture() {
+        let _sampled = view;
+    }
+    Ok(())
 }
 ```
 
-A non-zero equalizer is written into libmpv and also baked into the blit, so the grade is applied twice. All zeros stay identity on both stages.
+`Slot::Empty` skips the GPU work. Until a frame has been uploaded, `picture` is `Picture::Waiting`.
+
+The core is created with:
+
+| Property | Value |
+| --- | --- |
+| `vo` | `libmpv` |
+| `hwdec` | `auto-safe` |
+| `ao` | `pulse` |
+| `idle` | `yes` |
+| `keep-open` | `yes` |
+| `video-sync` | `audio` |
+| `video-timing-offset` | `0` |
+| `sub-visibility` | `yes` |
+| `deinterlace` | `auto` |
+| `osc` | `no` |
+| `input-default-bindings`, `input-vo-keyboard` | `no` |
+
+Hardware decode may run inside libmpv. The texture the host samples is still the software RGB frame. `Player::command` forwards a string list to `mpv_command` for everything else, including another audio output.
+
+`report_swap` runs only after a poll that consumed a new frame.
+
+## Controls
+
+`set_playback`, `seek`, `set_mute`, `set_deinterlace`, and `adjust` (panscan, zoom, volume) go to libmpv. `position` and `duration` are `Option<Finite>` and stay empty until mpv has reported a finite number. `Finite` rejects NaN and infinities.
+
+`Equalizer` is brightness, contrast, saturation, and gamma in −100..=100, plus hue in −180..=180 degrees. mpv's own hue property is −100..=100. The player sends `degrees * 100 / 180` and reads the echo back with `round(raw * 180 / 100)` before any integer rounding of the mpv value.
+
+`set_equalizer` writes those knobs into libmpv and the blit applies the same knobs again. A non-zero grade is applied twice. All zeros stay identity on both stages.
+
+## Examples
+
+`examples/consumer.rs` drives the control surface and prints read-backs. `examples/winit.rs` is a dev window that samples `Picture::Shown` and binds keys. winit is a dev-dependency. The library does not depend on it.
 
 ## License
 

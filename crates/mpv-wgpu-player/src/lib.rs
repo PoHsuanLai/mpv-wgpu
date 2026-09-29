@@ -1,11 +1,62 @@
-//! Headless libmpv playback into a caller-owned wgpu texture.
+//! Headless libmpv playback into a caller-owned [`wgpu::Texture`].
 //!
-//! The host owns the [`wgpu::Device`], the window, and the swapchain. [`Player`]
-//! uploads libmpv's packed RGB software frame into a gamma-encoded
-//! `Rgba8Unorm` texture the host samples from its own pass.
+//! The host owns the [`wgpu::Device`], the queue, the window, and the swapchain.
+//! [`Player`] uploads libmpv's packed RGB software frame into a gamma-encoded
+//! `Rgba8Unorm` texture. [`Picture::Shown`] has alpha 1 and a top-left origin.
+//! Sample that view as non-sRGB data. An sRGB swapchain encodes it again.
 //!
-//! [`Picture::Shown`] texels are already gamma-encoded. Sample the view as
-//! non-sRGB data. Writing those values into an sRGB swapchain encodes them again.
+//! Planes the host already has belong in `mpv-wgpu`. This player does not pass
+//! its composited frame through that renderer.
+//!
+//! # Requirements
+//!
+//! The build links libmpv. `pkg-config` must resolve the `mpv` module. The core
+//! starts with `vo=libmpv`, `hwdec=auto-safe`, `ao=pulse`, `video-sync=audio`,
+//! `idle=yes`, `keep-open=yes`, subtitles visible, and `deinterlace=auto`.
+//! The on-screen controller and the default key bindings are off.
+//! [`Player::command`] forwards any other `mpv_command`.
+//!
+//! Hardware decode may run inside libmpv. The sampled texture is still the
+//! software RGB frame, already scaled and letterboxed to the slot.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use std::num::NonZeroU32;
+//!
+//! use mpv_wgpu_player::{Picture, Player, Slot, SlotSize};
+//!
+//! fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
+//!     let mut player = Player::new(device, queue)?;
+//!     player.set_slot(Slot::Sized(SlotSize {
+//!         width: NonZeroU32::new(1280).expect("non-zero"),
+//!         height: NonZeroU32::new(720).expect("non-zero"),
+//!     }))?;
+//!     player.load(path)?;
+//!     player.poll()?;
+//!     if let Picture::Shown(view) = player.picture() {
+//!         let _sampled = view;
+//!     }
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Threading
+//!
+//! [`Player`] is [`Send`] and not [`Sync`]. Call [`Player::poll`] on the thread
+//! that presents. [`Player::set_notify`] may run on an mpv thread and must only
+//! wake the host. `report_swap` runs only after a poll that consumed a new frame.
+//!
+//! # Equalizer
+//!
+//! [`Equalizer`] is brightness, contrast, saturation, and gamma in −100..=100,
+//! and hue in −180..=180 degrees. mpv's hue property is −100..=100. The player
+//! sends `degrees * 100 / 180` and inverts an echo with `round(raw * 180 / 100)`
+//! before rounding the mpv value to an integer.
+//!
+//! [`Player::set_equalizer`] writes the knobs into libmpv and the blit applies
+//! those same knobs again. A non-zero grade is applied twice. All zeros stay
+//! identity on both stages.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]
