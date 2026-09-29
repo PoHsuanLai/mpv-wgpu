@@ -1,12 +1,14 @@
-//! Headless libmpv playback into a caller-owned [`wgpu::Texture`].
+//! libmpv with the VO window removed.
 //!
-//! The host owns the [`wgpu::Device`], the queue, the window, and the swapchain.
-//! [`Player`] uploads libmpv's packed RGB software frame into a gamma-encoded
-//! `Rgba8Unorm` texture. [`Picture::Shown`] has alpha 1 and a top-left origin.
-//! Sample that view as non-sRGB data. An sRGB swapchain encodes it again.
+//! [`Player`] is a libmpv client on `vo=libmpv` and `MPV_RENDER_API_TYPE_SW`.
+//! lavf, lavc, the AO, libass, and the playloop stay in mpv. The software
+//! target replaces `vo=gpu` / `vo=gpu-next` and mpv's window: mpv letterboxes
+//! into the slot, burns OSD, and [`Player::poll`] uploads the `rgb0` image
+//! 1:1. [`Picture::Shown`] is gamma-encoded `Rgba8Unorm`, alpha 1, top-left.
+//! Sample it as non-sRGB data. An sRGB swapchain encodes it again.
 //!
-//! Planes the host already has belong in `mpv-wgpu`. This player does not pass
-//! its composited frame through that renderer.
+//! The `mpv-wgpu` crate is the gpu-next picture chain for planes the caller
+//! already has. This player does not pass the composited frame through it.
 //!
 //! # Requirements
 //!

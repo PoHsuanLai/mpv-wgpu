@@ -1,34 +1,49 @@
 # mpv-wgpu
 
-Libraries for drawing video inside an application that already owns a [wgpu](https://wgpu.rs/) device and a window. Nothing in this repository opens a window or a swapchain.
+A wgpu stand-in for mpv's video output. The mpv core stays where a file is being played. The GPU picture chain is replaced.
 
-| Crate | When to use it |
+mpv draws frames in one of two VOs. `vo=gpu` is `video.c`, the GLSL generator, and an `ra` backend. `vo=gpu-next` (the current default) is libplacebo. `vo=libmpv` skips mpv's window and waits for the host's render context, either OpenGL or the software target. OSC, `input.conf`, and the window sit on top of that.
+
+This repository splits those jobs into two crates. Neither one opens a window or a swapchain. The host already has the `wgpu` device.
+
+| mpv | this repo |
 | --- | --- |
-| [`mpv-wgpu`](crates/mpv-wgpu) | The host already has YUV or RGBA planes and wants them drawn into its own texture. No libmpv. |
-| [`mpv-wgpu-player`](crates/mpv-wgpu-player) | The host wants libmpv to open a file, play audio, and hand back one gamma-encoded RGB texture. |
+| The picture chain in `vo=gpu` / `vo=gpu-next`: csp, chroma location, EOTF, scale, tone map, video-eq, dither, bitmap overlay | [`mpv-wgpu`](crates/mpv-wgpu). Static WGSL on the caller's device. The caller passes Y, U, V or RGBA. No libplacebo, no `ra` backend, no generated shader. |
+| `vo=libmpv` plus the window mpv would have opened | [`mpv-wgpu-player`](crates/mpv-wgpu-player). The mpv core is unchanged: lavf, lavc, AO, libass, properties, commands, events. The render context is `MPV_RENDER_API_TYPE_SW`. The `rgb0` image is uploaded 1:1 into a host texture. |
 
 ```toml
-# planes you already decoded
-mpv-wgpu = "0.1"
-
-# file playback
-mpv-wgpu-player = "0.1"
+mpv-wgpu = "0.1"          # planes, in place of gpu / gpu-next
+mpv-wgpu-player = "0.1"   # libmpv, with the VO window removed
 ```
 
-`mpv-wgpu-player` depends on `mpv-wgpu` for [`Equalizer`](crates/mpv-wgpu/src/types.rs). The player does not send its RGB frame through `Renderer`. That frame is already composited.
-
-API documentation is the rustdoc on each crate:
+The player crate depends on `mpv-wgpu` for `Equalizer`. It does not run libmpv's `rgb0` frame through `Renderer`. That frame has already been through mpv's software VO: dst rect, panscan, rotation, and `osd_draw_on_image`.
 
 ```sh
 cargo doc --open -p mpv-wgpu
 cargo doc --open -p mpv-wgpu-player
 ```
 
-## Picture renderer
+## What the picture crate replaces
 
-`Renderer` uploads or samples the caller's planes, decodes them to linear light, scales into a destination rectangle, tone-maps, grades once, and writes the caller's target.
+`Renderer` is the image path of `gpu-next`, written as three fixed shaders: decode, present, overlay. It is not bit-exact with libplacebo. The spline is a Hermite in PQ, not `tone-mapping=bt.2390`.
 
-The order on a `Gamma8` target is spline, then the five equalizer knobs in linear light, then the inverse transfer, then an 8×8 ordered dither. A `Linear` target skips the spline and the inverse transfer, so contrast −100 stays mid-gray (`0.5`) there. On `Gamma8` that same mid-gray is encoded (BT.1886 of `0.5` is about `0.749`) before dither.
+Taken from that chain, in simpler form:
+
+| mpv | here |
+| --- | --- |
+| `colormatrix`, `video-range` | BT.601, BT.709, BT.2020. Limited range maps code 16 to 0 and 235 to 1. Full range maps 0 and the peak code. |
+| `chroma-location` | `TopLeft`, `Left`, `Center`, as luma-pixel offsets. |
+| `gamma` / transfer: bt.1886, the 2.2 reading of srgb, pq, hlg | Same four. Linear light is 1.0 = 100 nits, so PQ signal 1 is linear 100. HLG signal 0.75 at a 1000-nit peak is the BT.2408 reference white, about 203 nits. |
+| `scale` | Separable 4-tap cubic. Growing axes are Catmull-Rom. Shrinking axes are Hermite. `lanczos`, EWA, and `dscale` are absent. |
+| `video-rotate=90` | `QuarterTurn::D90`, clockwise, y down, inside the dest rect the host computed. |
+| `tone-mapping` | One spline. Identity when the target peak already holds the source peak. `Encoding::Linear` skips it, the way a linear export skips the display OETF. |
+| `brightness`, `contrast`, `saturation`, `gamma`, `hue` | Once, in linear light, after the spline and before the inverse transfer. Contrast −100 is linear 0.5, then BT.1886-encoded to about 0.749 on `Gamma8`. On `Linear` it stays 0.5. |
+| `dither=ordered` | 8×8 Bayer at the framebuffer pixel. Error diffusion is absent. |
+| Bitmap OSD / sub images | Premultiplied RGBA overlays after the grade. libass and `blend-subs=video` are absent. |
+
+Still mpv's, or still the host's: demux, decode, AO, the playloop, hwdec surface import (`vaapi`, `nvdec`, `d3d11va`, `videotoolbox`, drmprime), `--glsl-shader`, deband, ICC, Dolby Vision, ST 2094, film grain, interpolation, and `display-resample`. The shaders are source files. The draw path does not concatenate GLSL the way `vo=gpu` does.
+
+`Encoding::Gamma8` writes `Rgba8Unorm` (code / 255). `Encoding::Linear` writes `Rgba16Float`. A 16-bit scalar plane needs `TEXTURE_FORMAT_16BIT_NORM`.
 
 ```rust
 use mpv_wgpu::{
@@ -84,20 +99,17 @@ fn draw_limited(
 }
 ```
 
-`target` for `Encoding::Gamma8` is `Rgba8Unorm`. For `Encoding::Linear` it is `Rgba16Float`. The full contract, including 16-bit planes, chroma siting, and overlays, is in the [picture crate README](crates/mpv-wgpu/README.md).
+The pixel contract is in the [picture crate README](crates/mpv-wgpu/README.md). `decode_linear` and `renderer::placed_sample` are the CPU copy of the shaders. `examples/planes` prints `black=0`, `white=255`, `full16=255`, `rgba=0`.
 
-`examples/planes` in that crate prints the first-pixel code for black, white, a 16-bit peak, and an RGBA black:
+## What the player crate replaces
 
-```text
-black=0
-white=255
-full16=255
-rgba=0
-```
+`Player` is a libmpv client with `vo=libmpv` and a software render context created before `loadfile`. Demux, decode, audio, subtitle rendering, and the playloop stay inside mpv. What mpv's window, OSC, and `vo_gpu_next` flip used to do is now the host's pass over `Picture::Shown`.
 
-## File playback
+`set_slot` is the render size, in physical pixels. mpv runs `mp_get_src_dst_rects` into that slot, so letterbox, panscan, zoom, and rotation happen before the upload. `osd_draw_on_image` has already burned libass and OSD into the `rgb0` buffer. The wgpu pass is a 1:1 blit of that buffer into `Rgba8Unorm`. Sample it as non-sRGB. An sRGB swapchain encodes it again.
 
-`Player` starts a headless libmpv core (`vo=libmpv`). libmpv demuxes, decodes, plays audio, and burns subtitles into a packed RGB frame the size of the slot. `poll` uploads that frame. `picture` is either `Picture::Waiting` or `Picture::Shown`, a gamma-encoded `Rgba8Unorm` view. Sample it as non-sRGB data. An sRGB swapchain encodes those texels a second time.
+The core starts at `hwdec=auto-safe`, `ao=pulse` (this libmpv rejects the driver name `auto`), `video-sync=audio`, `video-timing-offset=0`, `idle=yes`, `keep-open=yes`, `sub-visibility=yes`, `deinterlace=auto`. `osc`, `input-default-bindings`, and `input-vo-keyboard` are off. `Player::command` is `mpv_command`. `set_notify` is the wakeup callback and must only wake the host. `report_swap` runs only after a poll that consumed a frame.
+
+`set_equalizer` sets mpv's `brightness`, `contrast`, `saturation`, `gamma`, and `hue`, and the blit bakes the same values again. A non-zero grade is applied twice. Zeros stay identity. Hue on the public type is degrees, −180..=180. The mpv property stays −100..=100, and the player scales by 100/180.
 
 ```rust
 use std::num::NonZeroU32;
@@ -119,19 +131,19 @@ fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), m
 }
 ```
 
-The build links libmpv. `pkg-config` must find the `mpv` module. Audio starts on PulseAudio (`ao=pulse`). `Player::command` forwards a string list to `mpv_command`. Details and the equalizer behavior are in the [player crate README](crates/mpv-wgpu-player/README.md).
+`pkg-config` must find `mpv`. The rest of the client surface is in the [player crate README](crates/mpv-wgpu-player/README.md).
 
 ## Building
 
-Rust 1.87 or newer. From this repository:
+Rust 1.87 or newer.
 
 ```sh
+cargo test -p mpv-wgpu            # picture crate, no libmpv
+cargo test -p mpv-wgpu-player     # links libmpv
 cargo test --workspace --locked
-cargo test -p mpv-wgpu          # no libmpv required
-cargo test -p mpv-wgpu-player   # requires libmpv
 ```
 
-Continuous integration on Ubuntu installs `libmpv-dev` and a software Vulkan driver, then runs the workspace tests and clippy with `unwrap` denied.
+CI on Ubuntu installs `libmpv-dev` and a software Vulkan driver, then runs the workspace tests and clippy with `unwrap` denied.
 
 ## License
 

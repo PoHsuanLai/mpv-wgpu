@@ -1,10 +1,14 @@
-//! Draw caller-owned YUV or RGBA pictures into a caller-owned [`wgpu::Texture`].
+//! The picture chain of `vo=gpu` and `vo=gpu-next`, as static WGSL.
 //!
-//! The host owns the [`wgpu::Device`], the queue, the window, and the swapchain.
-//! [`Renderer`] samples the caller's planes and writes a caller-owned target.
-//! It does not open a window and it does not link libmpv. File playback lives
-//! in the `mpv-wgpu-player` crate, which does not feed its composited RGB frame
-//! through this renderer.
+//! [`Renderer`] replaces csp conversion, chroma location, the EOTF, scale,
+//! tone mapping, video-eq, ordered dither, and bitmap overlays on a
+//! caller-owned [`wgpu::Texture`]. The caller passes Y, U, V or RGBA. There is
+//! no libplacebo and no `ra` backend. The spline is a Hermite in PQ, not
+//! `tone-mapping=bt.2390`.
+//!
+//! The host owns the device, the queue, and the swapchain. File playback with
+//! `vo=libmpv` is the `mpv-wgpu-player` crate. That player does not run mpv's
+//! composited `rgb0` frame through this renderer.
 //!
 //! # Pipeline
 //!
@@ -120,11 +124,12 @@
 //! [`decode_linear`] decodes one sample. [`renderer::placed_sample`] scales and
 //! presents one pixel. The shader matches those functions.
 //!
-//! # What stays with the host
+//! # Left in mpv
 //!
-//! The window, the swapchain, demux, decode, audio, the playback clock,
-//! subtitle shaping, and import of hardware-decoder surfaces. Shader text
-//! shipped with the crate is static.
+//! Demux, decode, AO, the playloop, and libass stay in the mpv core. So do
+//! hwdec imports, `--glsl-shader`, Lanczos and EWA, deband, ICC, Dolby Vision,
+//! and interpolation. Shader text shipped with this crate is static. The draw
+//! path does not assemble it at runtime.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]

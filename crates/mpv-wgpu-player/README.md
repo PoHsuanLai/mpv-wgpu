@@ -1,10 +1,12 @@
 # mpv-wgpu-player
 
-Headless libmpv playback into a caller-owned [wgpu](https://wgpu.rs/) texture.
+libmpv with the VO window removed. The core is the same one the `mpv` binary uses. The presentation is a wgpu texture.
 
-The host owns the device, the queue, the window, and the swapchain. libmpv demuxes, decodes, plays audio, and burns subtitles into one packed RGB frame. `Player::poll` uploads that frame. `Player::picture` is a gamma-encoded `Rgba8Unorm` view, alpha 1, top-left origin. Sample it as non-sRGB data. An sRGB swapchain encodes those texels again.
+`vo=libmpv` and a software render context (`MPV_RENDER_API_TYPE_SW`, `rgb0`) replace `vo=gpu` / `vo=gpu-next` and mpv's own window. lavf, lavc, the AO, libass, and the playloop stay inside mpv. mpv still runs the dst rect, panscan, zoom, rotation, and `osd_draw_on_image` into the slot. `poll` uploads that buffer 1:1. `Picture::Shown` is gamma-encoded `Rgba8Unorm`, alpha 1, top-left. Sample it as non-sRGB. An sRGB swapchain encodes it again.
 
-Planes you already have, with no libmpv dependency, belong in [`mpv-wgpu`](https://github.com/PoHsuanLai/mpv-wgpu/tree/master/crates/mpv-wgpu). This player does not pass its RGB frame through that renderer. The frame is already composited at the slot size.
+The OpenGL render API and `ra_*` are not used. Hwdec may decode inside mpv. The texture is still the software frame. OSC, `input-default-bindings`, and `input-vo-keyboard` are off. The host is the UI.
+
+Planes the caller already has, in place of the gpu-next picture chain, are [`mpv-wgpu`](https://github.com/PoHsuanLai/mpv-wgpu/tree/master/crates/mpv-wgpu). This player does not pass the composited `rgb0` frame through that renderer.
 
 ```toml
 mpv-wgpu-player = "0.1"

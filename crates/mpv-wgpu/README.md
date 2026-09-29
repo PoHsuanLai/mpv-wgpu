@@ -1,8 +1,10 @@
 # mpv-wgpu
 
-Draw caller-owned YUV or RGBA pictures into a caller-owned [wgpu](https://wgpu.rs/) texture.
+The picture chain of `vo=gpu` and `vo=gpu-next`, as static WGSL on a caller-owned wgpu device.
 
-The host owns the device, the queue, the window, and the swapchain. This crate does not open a window and does not link libmpv. Opening files is [`mpv-wgpu-player`](https://github.com/PoHsuanLai/mpv-wgpu/tree/master/crates/mpv-wgpu-player).
+`vo=gpu` generates GLSL per frame and draws through an `ra` backend. `vo=gpu-next` hands the same job to libplacebo. This crate replaces that image path: csp, chroma location, EOTF, a cubic scale, one spline tone map, video-eq once in linear light, ordered dither, and premultiplied bitmap overlays. The caller supplies Y, U, V or RGBA, the way a decoder's `mp_image` would. There is no libplacebo, no `ra` backend, and no shader generator. The result is not bit-exact with libplacebo. The spline is a Hermite in PQ, not `tone-mapping=bt.2390`.
+
+The host owns the device, the queue, and the swapchain. File playback, libass, and `vo=libmpv` are [`mpv-wgpu-player`](https://github.com/PoHsuanLai/mpv-wgpu/tree/master/crates/mpv-wgpu-player). That player does not run mpv's composited `rgb0` frame through this renderer.
 
 ```toml
 mpv-wgpu = "0.1"
@@ -119,9 +121,9 @@ A mismatched format returns `Error::Target`. The target is cleared to opaque bla
 
 `decode_linear` decodes one sample. `renderer::placed_sample` scales and presents one pixel. The shader matches those functions, so a host can evaluate one pixel on the CPU and compare it with the texture.
 
-## Outside this crate
+## Left in mpv
 
-Window and swapchain, demux, decode, audio, a playback clock, libass, hardware-decoder surface import, and a second letterbox pass. The shaders are fixed text. The draw path does not build shader source at runtime.
+Demux, decode, AO, the playloop, and libass stay in the mpv core. So do hwdec imports (`vaapi`, `nvdec`, `d3d11va`, `videotoolbox`, drmprime), `--glsl-shader`, Lanczos and EWA, deband, ICC, Dolby Vision, ST 2094, film grain, interpolation, and `display-resample`. `video-zoom` and `panscan` are the host's dest rect here. The player crate still lets mpv compute that rect. The shaders are source files. The draw path does not assemble them at runtime.
 
 ## Example
 
