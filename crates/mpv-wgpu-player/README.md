@@ -1,5 +1,10 @@
 # mpv-wgpu-player
 
+[![ci](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
+[![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
+![rust 1.87+](https://img.shields.io/badge/rust-1.87%2B-orange.svg)
+
 libmpv with the VO window removed. The core is the same one the `mpv` binary uses. The presentation is a wgpu texture.
 
 `vo=libmpv` and a software render context (`MPV_RENDER_API_TYPE_SW`, `rgb0`) replace `vo=gpu` / `vo=gpu-next` and mpv's own window. lavf, lavc, the AO, libass, and the playloop stay inside mpv. mpv still runs the dst rect, panscan, zoom, rotation, and `osd_draw_on_image` into the slot. `poll` uploads that buffer 1:1. `Picture::Shown` is gamma-encoded `Rgba8Unorm`, alpha 1, top-left. Sample it as non-sRGB. An sRGB swapchain encodes it again.

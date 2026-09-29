@@ -1,5 +1,10 @@
 # mpv-wgpu
 
+[![ci](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
+[![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
+![rust 1.87+](https://img.shields.io/badge/rust-1.87%2B-orange.svg)
+
 A wgpu stand-in for mpv's video output. The mpv core stays where a file is being played. The GPU picture chain is replaced.
 
 mpv draws frames in one of two VOs. `vo=gpu` is `video.c`, the GLSL generator, and an `ra` backend. `vo=gpu-next` (the current default) is libplacebo. `vo=libmpv` skips mpv's window and waits for the host's render context, either OpenGL or the software target. OSC, `input.conf`, and the window sit on top of that.
