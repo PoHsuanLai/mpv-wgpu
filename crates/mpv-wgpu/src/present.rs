@@ -119,7 +119,7 @@ pub fn present_texel(linear: [f32; 3], x: u32, y: u32, job: &PresentJob) -> [f32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::UnitBias;
+    use crate::types::{Hue, UnitBias};
 
     fn near(value: f32, expected: f32) {
         assert!(
@@ -200,5 +200,106 @@ mod tests {
             (out[0] - 0.5).abs() > 0.1,
             "Gamma8 stored {out:?} instead of the encoded mid-gray {expect}"
         );
+    }
+
+    fn exact(value: f32, expected: f32) {
+        assert!((value - expected).abs() <= 1.0e-5, "{value} vs {expected}");
+    }
+
+    fn luma709(rgb: [f32; 3]) -> f32 {
+        let weights = color::luma_weights(Coefficients::Bt709);
+        weights[0] * rgb[0] + weights[1] * rgb[1] + weights[2] * rgb[2]
+    }
+
+    #[test]
+    fn brightness_plus_100_lifts_black_to_white() {
+        let equalizer = Equalizer {
+            brightness: UnitBias::new(100),
+            ..Equalizer::default()
+        };
+        let grade = crate::equalizer::bake(equalizer, Coefficients::Bt709);
+        exact(grade.bias[0], 1.0);
+        exact(grade.bias[1], 1.0);
+        exact(grade.bias[2], 1.0);
+        let out = grade_rgb([0.0, 0.0, 0.0], equalizer, Coefficients::Bt709);
+        exact(out[0], 1.0);
+        exact(out[1], 1.0);
+        exact(out[2], 1.0);
+    }
+
+    // Saturation -100 maps rgb to luma_weights * dot(luma_weights, rgb).
+    #[test]
+    fn saturation_minus_100_scales_red_by_the_luma_weights() {
+        let equalizer = Equalizer {
+            saturation: UnitBias::new(-100),
+            ..Equalizer::default()
+        };
+        let weights = color::luma_weights(Coefficients::Bt709);
+        exact(weights[0], 0.2126);
+        exact(weights[1], 0.7152);
+        exact(weights[2], 0.0722);
+        let out = grade_rgb([1.0, 0.0, 0.0], equalizer, Coefficients::Bt709);
+        let y = weights[0];
+        exact(out[0], weights[0] * y);
+        exact(out[1], weights[1] * y);
+        exact(out[2], weights[2] * y);
+        assert!((out[0] - out[1]).abs() > 0.05, "{out:?}");
+    }
+
+    // The hue matrix keeps luma. grade_rgb then clamps a channel that leaves the cube.
+    #[test]
+    fn hue_90_keeps_luma_until_a_channel_clips() {
+        let equalizer = Equalizer {
+            hue: Hue::new(90),
+            ..Equalizer::default()
+        };
+        let input = [1.0, 0.0, 0.0];
+        let grade = crate::equalizer::bake(equalizer, Coefficients::Bt709);
+        let spun = color::mul_vec(grade.matrix, input);
+        let unclamped = [
+            spun[0] + grade.bias[0],
+            spun[1] + grade.bias[1],
+            spun[2] + grade.bias[2],
+        ];
+        assert!(
+            (luma709(unclamped) - luma709(input)).abs() <= 1.0e-4,
+            "{} vs {}",
+            luma709(unclamped),
+            luma709(input)
+        );
+        let graded = grade_rgb(input, equalizer, Coefficients::Bt709);
+        let moved = (graded[0] - input[0]).abs()
+            + (graded[1] - input[1]).abs()
+            + (graded[2] - input[2]).abs();
+        assert!(moved > 0.2, "{graded:?}");
+        let spread = (graded[0] - graded[1]).abs()
+            + (graded[1] - graded[2]).abs()
+            + (graded[0] - graded[2]).abs();
+        assert!(spread > 0.05, "hue collapsed {graded:?}");
+    }
+
+    #[test]
+    fn gamma_plus_and_minus_100_are_square_root_and_square() {
+        let brighter = Equalizer {
+            gamma: UnitBias::new(100),
+            ..Equalizer::default()
+        };
+        let up = crate::equalizer::bake(brighter, Coefficients::Bt709);
+        exact(up.gamma_exp, 0.5);
+        let out = grade_rgb([0.25, 0.25, 0.25], brighter, Coefficients::Bt709);
+        exact(out[0], 0.5);
+        exact(out[1], 0.5);
+        exact(out[2], 0.5);
+
+        let darker = Equalizer {
+            gamma: UnitBias::new(-100),
+            ..Equalizer::default()
+        };
+        let down = crate::equalizer::bake(darker, Coefficients::Bt709);
+        exact(down.gamma_exp, 2.0);
+        let out = grade_rgb([0.5, 0.5, 0.5], darker, Coefficients::Bt709);
+        exact(out[0], 0.25);
+        exact(out[1], 0.25);
+        exact(out[2], 0.25);
     }
 }

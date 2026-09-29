@@ -962,7 +962,7 @@ mod tests {
     use crate::color::{self, ChromaSiting, Coefficients, Levels, Transfer};
     use crate::cubic::QuarterTurn;
     use crate::present::{Encoding, PresentJob};
-    use crate::types::{Equalizer, UnitBias};
+    use crate::types::{Equalizer, Error, Hue, UnitBias};
 
     fn close(got: f32, want: f32, tol: f32) {
         assert!((got - want).abs() <= tol, "{got} vs {want} (tol {tol})");
@@ -1532,6 +1532,433 @@ mod tests {
                 close(got[channel], want[channel], tol);
             }
         }
+
+        let y_bt2020 = [200u8];
+        let u_bt2020 = [64u8];
+        let v_bt2020 = [220u8];
+        paint_yuv(
+            &mut renderer,
+            &device,
+            &queue,
+            &y_bt2020,
+            1,
+            1,
+            &u_bt2020,
+            1,
+            1,
+            &v_bt2020,
+            PlaneBits::Eight,
+            Coefficients::Bt2020,
+            Levels::Full,
+            Transfer::Bt1886,
+            ChromaSiting::TopLeft,
+            100.0,
+            100.0,
+            QuarterTurn::D0,
+            Equalizer::default(),
+            Encoding::Linear,
+            rect(1, 1),
+            &[],
+            tol,
+        );
+        let decoded_2020 = decode_yuv(
+            &norm8(&y_bt2020),
+            1,
+            1,
+            &norm8(&u_bt2020),
+            1,
+            1,
+            &norm8(&v_bt2020),
+            Coefficients::Bt2020,
+            Levels::Full,
+            Transfer::Bt1886,
+            100.0,
+            ChromaSiting::TopLeft,
+        );
+        let decoded_709 = decode_yuv(
+            &norm8(&y_bt2020),
+            1,
+            1,
+            &norm8(&u_bt2020),
+            1,
+            1,
+            &norm8(&v_bt2020),
+            Coefficients::Bt709,
+            Levels::Full,
+            Transfer::Bt1886,
+            100.0,
+            ChromaSiting::TopLeft,
+        );
+        let matrix_delta: f32 = (0..3)
+            .map(|channel| (decoded_2020[0][channel] - decoded_709[0][channel]).abs())
+            .sum();
+        assert!(
+            matrix_delta > 0.02,
+            "bt.2020 {decoded_2020:?} matched bt.709 {decoded_709:?}"
+        );
+
+        let y_srgb = [0u8, 128];
+        let srgb = paint_yuv(
+            &mut renderer,
+            &device,
+            &queue,
+            &y_srgb,
+            2,
+            1,
+            &neutral,
+            1,
+            1,
+            &neutral,
+            PlaneBits::Eight,
+            Coefficients::Bt709,
+            Levels::Full,
+            Transfer::Srgb,
+            ChromaSiting::TopLeft,
+            100.0,
+            100.0,
+            QuarterTurn::D0,
+            Equalizer::default(),
+            Encoding::Linear,
+            rect(2, 1),
+            &[],
+            tol,
+        );
+        close(srgb.gpu[0][0], 0.0, tol);
+        let signal: f32 = 128.0 / 255.0;
+        let as_22 = signal.powf(2.2);
+        let as_24 = signal.powf(2.4);
+        let mid = srgb.gpu[1][0];
+        assert!(
+            (mid - as_22).abs() + 0.01 < (mid - as_24).abs(),
+            "srgb linear {mid} is not nearer 2.2 ({as_22}) than 2.4 ({as_24})"
+        );
+
+        let y_hlg = [0u8, 255];
+        let hlg = paint_yuv(
+            &mut renderer,
+            &device,
+            &queue,
+            &y_hlg,
+            2,
+            1,
+            &neutral,
+            1,
+            1,
+            &neutral,
+            PlaneBits::Eight,
+            Coefficients::Bt709,
+            Levels::Full,
+            Transfer::Hlg,
+            ChromaSiting::TopLeft,
+            1000.0,
+            1000.0,
+            QuarterTurn::D0,
+            Equalizer::default(),
+            Encoding::Linear,
+            rect(2, 1),
+            &[],
+            0.05,
+        );
+        close(hlg.cpu[0][0], 0.0, 0.02);
+        close(hlg.gpu[0][0], 0.0, 0.05);
+        close(hlg.cpu[1][0], 10.0, 0.05);
+        for channel in 0..3 {
+            assert!(
+                hlg.gpu[1][channel] > 1.0,
+                "hlg white channel {channel} {}",
+                hlg.gpu[1][channel]
+            );
+        }
+
+        let knobs = Equalizer {
+            brightness: UnitBias::new(20),
+            saturation: UnitBias::new(-40),
+            gamma: UnitBias::new(50),
+            hue: Hue::new(45),
+            ..Equalizer::default()
+        };
+        let y_grade = [96u8, 180];
+        let u_grade = [64u8];
+        let v_grade = [200u8];
+        let graded = paint_yuv(
+            &mut renderer,
+            &device,
+            &queue,
+            &y_grade,
+            2,
+            1,
+            &u_grade,
+            1,
+            1,
+            &v_grade,
+            PlaneBits::Eight,
+            Coefficients::Bt709,
+            Levels::Full,
+            Transfer::Bt1886,
+            ChromaSiting::TopLeft,
+            100.0,
+            100.0,
+            QuarterTurn::D0,
+            knobs,
+            Encoding::Linear,
+            rect(2, 1),
+            &[],
+            tol,
+        );
+        let decoded_grade = decode_yuv(
+            &norm8(&y_grade),
+            2,
+            1,
+            &norm8(&u_grade),
+            1,
+            1,
+            &norm8(&v_grade),
+            Coefficients::Bt709,
+            Levels::Full,
+            Transfer::Bt1886,
+            100.0,
+            ChromaSiting::TopLeft,
+        );
+        let plain = job(
+            Coefficients::Bt709,
+            Transfer::Bt1886,
+            Equalizer::default(),
+            Encoding::Linear,
+            100.0,
+            100.0,
+        );
+        let mut moved = 0.0;
+        for x in 0..2 {
+            let sample = placed_sample(
+                &decoded_grade,
+                2,
+                1,
+                x,
+                0,
+                rect(2, 1),
+                QuarterTurn::D0,
+                &plain,
+            );
+            for (graded_channel, sample_channel) in graded.cpu[x as usize].iter().zip(sample) {
+                moved += (graded_channel - sample_channel).abs();
+            }
+        }
+        assert!(moved > 0.05, "grade was a no-op on {:?}", graded.cpu);
+    }
+
+    #[test]
+    fn draw_rejects_bad_size_format_and_16_bit_without_the_feature() {
+        let (device, queue) = match open_without_16bit() {
+            Ok(gpu) => gpu,
+            Err(err) => {
+                eprintln!("gpu-device-unavailable: {err}");
+                return;
+            }
+        };
+        assert!(
+            !device
+                .features()
+                .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM),
+            "a device requested with no features still exposes 16-bit unorm"
+        );
+        let mut renderer = Renderer::new(&device).expect("renderer");
+        let y = [128u8, 128];
+        let chroma = [128u8];
+        let short = [128u8];
+        let rgba = [0u8, 0, 0, 255];
+        let y16 = [0u8, 0, 255, 255];
+        let c16 = [0u8, 128];
+        let red = [255u8, 0, 0, 255];
+        let target = target_tex(&device, 2, 1, wgpu::TextureFormat::Rgba8Unorm);
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 0, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(2, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&y, 2, 1, PlaneBits::Eight),
+            },
+            rect(2, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(0, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(4, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&short, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(2, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Rgba(Plane {
+                width: 1,
+                height: 1,
+                bits: PlaneBits::Sixteen,
+                source: PlaneSource::Bytes(&rgba),
+            }),
+            rect(1, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let overlays = [Overlay {
+            pixels: &red,
+            width: 1,
+            height: 1,
+            dest: PixelRect {
+                x: 2,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        }];
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(2, 1),
+            &overlays,
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::InvalidSize));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y, 2, 1, PlaneBits::Eight),
+                u: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+                v: byte_plane(&chroma, 1, 1, PlaneBits::Eight),
+            },
+            rect(2, 1),
+            &[],
+            &target,
+            Encoding::Linear,
+        );
+        assert!(matches!(err, Error::Target));
+
+        let err = draw_error(
+            &mut renderer,
+            &device,
+            &queue,
+            Picture::Yuv {
+                y: byte_plane(&y16, 2, 1, PlaneBits::Sixteen),
+                u: byte_plane(&c16, 1, 1, PlaneBits::Sixteen),
+                v: byte_plane(&c16, 1, 1, PlaneBits::Sixteen),
+            },
+            rect(2, 1),
+            &[],
+            &target,
+            Encoding::Gamma8,
+        );
+        assert!(matches!(err, Error::Gpu));
+    }
+
+    fn draw_error(
+        renderer: &mut Renderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        picture: Picture<'_>,
+        dest: PixelRect,
+        overlays: &[Overlay<'_>],
+        target: &wgpu::Texture,
+        encoding: Encoding,
+    ) -> Error {
+        renderer
+            .draw(
+                device,
+                queue,
+                Draw {
+                    picture,
+                    matrix: Coefficients::Bt709,
+                    levels: Levels::Limited,
+                    transfer: Transfer::Bt1886,
+                    siting: ChromaSiting::TopLeft,
+                    peak_nits: 100.0,
+                    dest,
+                    rotation: QuarterTurn::D0,
+                    equalizer: Equalizer::default(),
+                    overlays,
+                    target,
+                    encoding,
+                    target_peak_nits: 100.0,
+                },
+            )
+            .expect_err("draw should fail")
     }
 
     struct Painted {
@@ -1935,6 +2362,26 @@ mod tests {
             }
         }
         opened.ok_or_else(|| errors.join("; "))
+    }
+
+    fn open_without_16bit() -> Result<(wgpu::Device, wgpu::Queue), String> {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let mut errors = Vec::new();
+        for fallback in [true, false] {
+            let adapter = match request_adapter(&instance, fallback) {
+                Ok(adapter) => adapter,
+                Err(err) => {
+                    errors.push(format!("fallback={fallback}: {err}"));
+                    continue;
+                }
+            };
+            match open_with(&adapter, wgpu::Features::empty()) {
+                Ok(gpu) => return Ok(gpu),
+                Err(err) => errors.push(format!("fallback={fallback}: {err}")),
+            }
+        }
+        Err(errors.join("; "))
     }
 
     fn open_with(
