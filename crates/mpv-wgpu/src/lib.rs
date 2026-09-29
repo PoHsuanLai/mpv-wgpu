@@ -21,7 +21,5 @@ pub use color::{
 pub use cubic::QuarterTurn;
 pub use equalizer::{Grade, bake};
 pub use present::Encoding;
-pub use renderer::{
-    Draw, Overlay, Picture, PixelRect, Plane, PlaneBits, PlaneSource, Renderer,
-};
+pub use renderer::{Draw, Overlay, Picture, PixelRect, Plane, PlaneBits, PlaneSource, Renderer};
 pub use types::{Equalizer, Error, Hue, UnitBias};

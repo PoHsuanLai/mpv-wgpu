@@ -2,9 +2,12 @@
 name = "mpv-wgpu-player"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.87"
 description = "Headless libmpv playback into a caller-owned wgpu texture"
 license = "MIT OR Apache-2.0"
-publish = false
+readme = "README.md"
+keywords = ["mpv", "libmpv", "wgpu", "video"]
+categories = ["multimedia::video", "api-bindings"]
 
 [dependencies]
 mpv-wgpu = { version = "0.1.0", path = "../mpv-wgpu" }

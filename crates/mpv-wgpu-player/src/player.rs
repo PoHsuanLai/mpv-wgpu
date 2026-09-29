@@ -12,8 +12,8 @@ use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
 use crate::frame_buffer::FrameBuffer;
 use crate::pipeline::{Gpu, Pipeline};
 use crate::types::{
-    map_mpv, Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture,
-    Playback, Presentation, Slot, SlotSize,
+    Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture, Playback,
+    Presentation, Slot, SlotSize, map_mpv,
 };
 
 const WAKE_IDLE: u8 = 0;
