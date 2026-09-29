@@ -1,6 +1,9 @@
 # mpv-wgpu
 
 [![ci](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/PoHsuanLai/mpv-wgpu/actions/workflows/ci.yml)
+[![mpv-wgpu on crates.io](https://img.shields.io/crates/v/mpv-wgpu.svg?label=mpv-wgpu)](https://crates.io/crates/mpv-wgpu)
+[![mpv-wgpu on docs.rs](https://img.shields.io/docsrs/mpv-wgpu.svg?label=mpv-wgpu%20docs)](https://docs.rs/mpv-wgpu)
+[![mpv-wgpu-player on crates.io](https://img.shields.io/crates/v/mpv-wgpu-player.svg?label=mpv-wgpu-player)](https://crates.io/crates/mpv-wgpu-player)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 [![Apache 2.0 license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
 ![rust 1.87+](https://img.shields.io/badge/rust-1.87%2B-orange.svg)
