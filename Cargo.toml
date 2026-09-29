@@ -1,20 +1,3 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/mpv-wgpu-player"]
-
-[package]
-name = "mpv-wgpu"
-version = "0.1.0"
-edition = "2024"
-description = "Draw caller-owned YUV or RGBA pictures into a caller-owned wgpu texture"
-license = "MIT OR Apache-2.0"
-publish = false
-
-[dependencies]
-wgpu = "30"
-bytemuck = { version = "1", features = ["derive"] }
-thiserror = "2"
-
-[dev-dependencies]
-pollster = "0.4"
-naga = "30"
+members = ["crates/mpv-wgpu", "crates/mpv-wgpu-player"]
