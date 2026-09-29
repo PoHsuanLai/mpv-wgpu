@@ -7,13 +7,13 @@ use std::time::Instant;
 use rsmpv::render::{FrameInfo, OwnedRenderContext, SwPixelFormat};
 use rsmpv::{EndFileReason, Event as MpvEvent, Format, Mpv, PropertyData};
 
-use crate::color::Coefficients;
-use crate::equalizer;
+use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
+
 use crate::frame_buffer::FrameBuffer;
 use crate::pipeline::{Gpu, Pipeline};
 use crate::types::{
-    map_mpv, Adjust, Deinterlace, EndReason, Equalizer, Error, Event, Finite, Mute, Outcome,
-    Picture, Playback, Presentation, Slot, SlotSize,
+    map_mpv, Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture,
+    Playback, Presentation, Slot, SlotSize,
 };
 
 const WAKE_IDLE: u8 = 0;
@@ -443,7 +443,7 @@ impl Player {
             "duration" => shared.duration = finite_data(&data),
             "brightness" => {
                 if let Some(value) = rounded(&data) {
-                    let next = crate::types::UnitBias::new(value);
+                    let next = UnitBias::new(value);
                     if shared.equalizer.brightness != next {
                         shared.equalizer.brightness = next;
                         shared.grade = Freshness::Dirty;
@@ -452,7 +452,7 @@ impl Player {
             }
             "contrast" => {
                 if let Some(value) = rounded(&data) {
-                    let next = crate::types::UnitBias::new(value);
+                    let next = UnitBias::new(value);
                     if shared.equalizer.contrast != next {
                         shared.equalizer.contrast = next;
                         shared.grade = Freshness::Dirty;
@@ -461,7 +461,7 @@ impl Player {
             }
             "saturation" => {
                 if let Some(value) = rounded(&data) {
-                    let next = crate::types::UnitBias::new(value);
+                    let next = UnitBias::new(value);
                     if shared.equalizer.saturation != next {
                         shared.equalizer.saturation = next;
                         shared.grade = Freshness::Dirty;
@@ -470,7 +470,7 @@ impl Player {
             }
             "gamma" => {
                 if let Some(value) = rounded(&data) {
-                    let next = crate::types::UnitBias::new(value);
+                    let next = UnitBias::new(value);
                     if shared.equalizer.gamma != next {
                         shared.equalizer.gamma = next;
                         shared.grade = Freshness::Dirty;
@@ -586,7 +586,7 @@ impl Player {
             self.stats.bytes = self.stats.bytes.saturating_add(self.frames.pixels().len() as u64);
             self.stats.frames = self.stats.frames.saturating_add(1);
         }
-        let grade = equalizer::bake(equalizer, coefficients);
+        let grade = bake(equalizer, coefficients);
         if software && let Stage::Live { gpu, .. } = &mut self.stage {
             let written = gpu.upload;
             gpu.rebind(&self.device, &self.pipeline, written);
@@ -692,8 +692,8 @@ pub(crate) fn hue_to_mpv(degrees: i32) -> f64 {
 }
 
 /// Invert a raw mpv hue echo. Round only after scaling back to degrees.
-pub(crate) fn hue_degrees_from_mpv(value: f64) -> crate::types::Hue {
-    crate::types::Hue::new((value * 180.0 / 100.0).round() as i32)
+pub(crate) fn hue_degrees_from_mpv(value: f64) -> Hue {
+    Hue::new((value * 180.0 / 100.0).round() as i32)
 }
 
 fn property_f64(data: &PropertyData) -> Option<f64> {

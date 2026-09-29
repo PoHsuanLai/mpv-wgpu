@@ -2,7 +2,7 @@
 
 use std::num::NonZeroU32;
 
-use mpv_wgpu::{
+use mpv_wgpu_player::{
     Adjust, Deinterlace, Equalizer, Finite, Hue, Mute, Playback, Slot, SlotSize, UnitBias,
 };
 
@@ -31,7 +31,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         trace: wgpu::Trace::Off,
     }))?;
 
-    let mut player = mpv_wgpu::Player::new(&device, &queue)?;
+    let mut player = mpv_wgpu_player::Player::new(&device, &queue)?;
     player.set_playback(Playback::Paused)?;
     println!("playback={}", player.playback());
 
@@ -79,14 +79,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let loaded = player
                 .events()
                 .iter()
-                .any(|event| matches!(event, mpv_wgpu::Event::Loaded));
+                .any(|event| matches!(event, mpv_wgpu_player::Event::Loaded));
             if loaded {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
-    player.seek(mpv_wgpu::Seek::Relative(step))?;
+    player.seek(mpv_wgpu_player::Seek::Relative(step))?;
     println!("seek=ok");
     let _ = Adjust::Volume(step);
     Ok(())

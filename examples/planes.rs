@@ -1,8 +1,8 @@
 //! Draws planar frames into a caller texture and prints Gamma8 codes.
 
-use mpv_wgpu::renderer::{Draw, Picture, PixelRect, Plane, PlaneBits, PlaneSource};
 use mpv_wgpu::{
-    ChromaSiting, Coefficients, Encoding, Equalizer, Levels, QuarterTurn, Renderer, Transfer,
+    ChromaSiting, Coefficients, Draw, Encoding, Equalizer, Levels, Picture, PixelRect, Plane,
+    PlaneBits, PlaneSource, QuarterTurn, Renderer, Transfer,
 };
 
 fn main() {

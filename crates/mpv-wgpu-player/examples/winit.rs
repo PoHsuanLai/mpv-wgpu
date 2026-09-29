@@ -1,9 +1,9 @@
-//! Dev-only window that samples [`mpv_wgpu::Player`] and binds keys.
+//! Dev-only window that samples [`mpv_wgpu_player::Player`] and binds keys.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use mpv_wgpu::{
+use mpv_wgpu_player::{
     Adjust, Deinterlace, Equalizer, Finite, Mute, Picture, Playback, Presentation, Slot, SlotSize,
     UnitBias,
 };
@@ -24,7 +24,7 @@ struct Host {
     modifiers: ModifiersState,
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
-    player: Option<mpv_wgpu::Player>,
+    player: Option<mpv_wgpu_player::Player>,
     logged_shown: bool,
     started: std::time::Instant,
 }
@@ -95,7 +95,7 @@ impl ApplicationHandler<Wake> for Host {
                 return;
             }
         };
-        let mut player = match mpv_wgpu::Player::new(&gpu.device, &gpu.queue) {
+        let mut player = match mpv_wgpu_player::Player::new(&gpu.device, &gpu.queue) {
             Ok(player) => player,
             Err(err) => {
                 eprintln!("player={err}");
@@ -194,7 +194,7 @@ impl Host {
                 player
                     .events()
                     .iter()
-                    .any(|event| matches!(event, mpv_wgpu::Event::Ended(_)))
+                    .any(|event| matches!(event, mpv_wgpu_player::Event::Ended(_)))
             }
             Err(err) => {
                 eprintln!("poll={err}");
@@ -305,25 +305,25 @@ enum EqField {
     Saturation,
 }
 
-fn seek(player: &mpv_wgpu::Player, seconds: f64) -> Result<(), mpv_wgpu::Error> {
+fn seek(player: &mpv_wgpu_player::Player, seconds: f64) -> Result<(), mpv_wgpu_player::Error> {
     let Some(amount) = Finite::new(seconds) else {
         return Ok(());
     };
-    player.seek(mpv_wgpu::Seek::Relative(amount))
+    player.seek(mpv_wgpu_player::Seek::Relative(amount))
 }
 
 fn adjust(
-    player: &mpv_wgpu::Player,
+    player: &mpv_wgpu_player::Player,
     kind: impl FnOnce(Finite) -> Adjust,
     delta: f64,
-) -> Result<(), mpv_wgpu::Error> {
+) -> Result<(), mpv_wgpu_player::Error> {
     let Some(amount) = Finite::new(delta) else {
         return Ok(());
     };
     player.adjust(kind(amount))
 }
 
-fn bump_eq(player: &mpv_wgpu::Player, field: EqField, delta: i32) -> Result<(), mpv_wgpu::Error> {
+fn bump_eq(player: &mpv_wgpu_player::Player, field: EqField, delta: i32) -> Result<(), mpv_wgpu_player::Error> {
     let mut eq = player.equalizer();
     match field {
         EqField::Contrast => eq.contrast = UnitBias::new(eq.contrast.get().saturating_add(delta)),
@@ -339,7 +339,7 @@ fn bump_eq(player: &mpv_wgpu::Player, field: EqField, delta: i32) -> Result<(), 
     player.set_equalizer(eq)
 }
 
-fn apply_slot(player: &mut mpv_wgpu::Player, size: PhysicalSize<u32>) -> Result<(), mpv_wgpu::Error> {
+fn apply_slot(player: &mut mpv_wgpu_player::Player, size: PhysicalSize<u32>) -> Result<(), mpv_wgpu_player::Error> {
     let slot = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
         (Some(width), Some(height)) => Slot::Sized(SlotSize { width, height }),
         _ => Slot::Empty,

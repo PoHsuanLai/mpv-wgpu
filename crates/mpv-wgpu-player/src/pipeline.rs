@@ -1,6 +1,7 @@
 //! Upload texture, equalizer pass, and the texture the host samples.
 
-use crate::equalizer::Grade;
+use mpv_wgpu::Grade;
+
 use crate::frame_buffer::FrameBuffer;
 use crate::types::{Error, SlotSize};
 

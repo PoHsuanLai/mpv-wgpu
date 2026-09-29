@@ -922,8 +922,20 @@ name = "mpv-wgpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "naga",
+ "pollster",
+ "thiserror 2.0.21",
+ "wgpu",
+]
+
+[[package]]
+name = "mpv-wgpu-player"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
  "env_logger",
  "log",
+ "mpv-wgpu",
  "naga",
  "pollster",
  "rsmpv",
