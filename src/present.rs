@@ -23,7 +23,7 @@ pub struct PresentJob {
     pub transfer: Transfer,
     /// Matrix whose luma weights the hue rotation uses.
     pub matrix: Coefficients,
-    /// Applied once, after the tone map and before dither.
+    /// Applied once, after the tone map and before the inverse transfer.
     pub equalizer: Equalizer,
     /// [`Encoding::Linear`] skips the spline and the inverse transfer.
     pub encoding: Encoding,
@@ -81,9 +81,9 @@ pub fn dither_unit(display: f32, x: u32, y: u32) -> f32 {
 
 /// Tone map, grade once, then encode.
 ///
-/// [`Encoding::Gamma8`] runs the spline, the inverse transfer, the equalizer on
-/// that display signal, and ordered dither. [`Encoding::Linear`] skips the spline
-/// and the inverse transfer, then runs the equalizer on the linear sample.
+/// [`Encoding::Gamma8`] runs the spline, the equalizer on that linear sample,
+/// the inverse transfer, and ordered dither. [`Encoding::Linear`] skips the
+/// spline and the inverse transfer, then runs the equalizer on the linear sample.
 pub fn present_texel(linear: [f32; 3], x: u32, y: u32, job: &PresentJob) -> [f32; 3] {
     let mapped = match job.encoding {
         Encoding::Linear => linear,
@@ -93,21 +93,25 @@ pub fn present_texel(linear: [f32; 3], x: u32, y: u32, job: &PresentJob) -> [f32
             spline_tone_map(linear[2], job.source_peak_nits, job.target_peak_nits),
         ],
     };
-    let display = match job.encoding {
-        Encoding::Linear => mapped,
-        Encoding::Gamma8 => [
-            color::encode_display(mapped[0], job.target_peak_nits, job.transfer),
-            color::encode_display(mapped[1], job.target_peak_nits, job.transfer),
-            color::encode_display(mapped[2], job.target_peak_nits, job.transfer),
-        ],
-    };
-    let graded = grade_rgb(display, job.equalizer, job.matrix);
+    let graded = grade_rgb(mapped, job.equalizer, job.matrix);
     match job.encoding {
         Encoding::Linear => graded,
         Encoding::Gamma8 => [
-            dither_unit(graded[0], x, y),
-            dither_unit(graded[1], x, y),
-            dither_unit(graded[2], x, y),
+            dither_unit(
+                color::encode_display(graded[0], job.target_peak_nits, job.transfer),
+                x,
+                y,
+            ),
+            dither_unit(
+                color::encode_display(graded[1], job.target_peak_nits, job.transfer),
+                x,
+                y,
+            ),
+            dither_unit(
+                color::encode_display(graded[2], job.target_peak_nits, job.transfer),
+                x,
+                y,
+            ),
         ],
     }
 }
@@ -177,5 +181,24 @@ mod tests {
         job.target_peak_nits = 100.0;
         let out = present_texel([40.0, 40.0, 40.0], 0, 0, &job);
         near(out[0], 40.0);
+    }
+
+    #[test]
+    fn gamma8_contrast_minus_100_encodes_after_the_grade() {
+        let equalizer = Equalizer {
+            contrast: UnitBias::new(-100),
+            ..Equalizer::default()
+        };
+        let job = sdr_job(Encoding::Gamma8, equalizer);
+        let out = present_texel([0.2, 0.9, 0.4], 1, 2, &job);
+        let encoded = color::encode_display(0.5, job.target_peak_nits, job.transfer);
+        let expect = dither_unit(encoded, 1, 2);
+        near(out[0], expect);
+        near(out[1], expect);
+        near(out[2], expect);
+        assert!(
+            (out[0] - 0.5).abs() > 0.1,
+            "Gamma8 stored {out:?} instead of the encoded mid-gray {expect}"
+        );
     }
 }

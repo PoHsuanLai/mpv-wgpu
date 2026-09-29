@@ -196,11 +196,20 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     var linear = sample_linear(src.x, src.y);
     if params.encoding == 0u {
         linear = vec3<f32>(spline(linear.r), spline(linear.g), spline(linear.b));
-        linear = vec3<f32>(encode_display(linear.r), encode_display(linear.g), encode_display(linear.b));
     }
     let graded = pow(max(params.grade * linear + params.bias, vec3<f32>(0.0)), vec3<f32>(params.gamma_exp));
     if params.encoding == 0u {
-        return vec4<f32>(dither(graded.r, pix.x, pix.y), dither(graded.g, pix.x, pix.y), dither(graded.b, pix.x, pix.y), 1.0);
+        let encoded = vec3<f32>(
+            encode_display(graded.r),
+            encode_display(graded.g),
+            encode_display(graded.b),
+        );
+        return vec4<f32>(
+            dither(encoded.r, pix.x, pix.y),
+            dither(encoded.g, pix.x, pix.y),
+            dither(encoded.b, pix.x, pix.y),
+            1.0,
+        );
     }
     return vec4<f32>(graded, 1.0);
 }

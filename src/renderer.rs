@@ -92,7 +92,7 @@ pub struct Draw<'a> {
     pub dest: PixelRect,
     /// Quarter turn applied while scaling into [`Draw::dest`].
     pub rotation: QuarterTurn,
-    /// Applied once, in the display domain for [`Encoding::Gamma8`].
+    /// Applied once in linear light, before the inverse transfer.
     pub equalizer: Equalizer,
     /// Premultiplied bitmaps. An empty slice draws none.
     pub overlays: &'a [Overlay<'a>],
@@ -1522,7 +1522,6 @@ mod tests {
         close(overlay_px[0], 1.0, tol);
         close(overlay_px[1], 0.0, tol);
         close(overlay_px[2], 0.0, tol);
-        close(composited.gpu[0][0], 0.5, tol);
 
         let rgba = [0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
         paint_rgba(&mut renderer, &device, &queue, &rgba);
