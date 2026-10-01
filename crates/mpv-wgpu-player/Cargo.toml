@@ -13,7 +13,7 @@ categories = ["multimedia::video", "api-bindings"]
 [dependencies]
 mpv-wgpu = { version = "0.1.0", path = "../mpv-wgpu" }
 rsmpv = { version = "0.2", features = ["render"] }
-wgpu = "30"
+wgpu = "29"
 bytemuck = { version = "1", features = ["derive"] }
 thiserror = "2"
 log = "0.4"
@@ -22,4 +22,4 @@ log = "0.4"
 winit = "0.30"
 pollster = "0.4"
 env_logger = "0.11"
-naga = "30"
+naga = "29"

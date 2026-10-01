@@ -7,9 +7,7 @@ pub const ROW_ALIGNMENT: usize = 256;
 
 /// Bytes in one row of an `Rgb0` image of `width`, rounded up to [`ROW_ALIGNMENT`].
 pub fn row_stride(width: u32) -> Result<usize, Error> {
-    let tight = (width as usize)
-        .checked_mul(4)
-        .ok_or(Error::InvalidSize)?;
+    let tight = (width as usize).checked_mul(4).ok_or(Error::InvalidSize)?;
     let aligned = tight.div_ceil(ROW_ALIGNMENT).saturating_mul(ROW_ALIGNMENT);
     if aligned == 0 {
         return Err(Error::InvalidSize);

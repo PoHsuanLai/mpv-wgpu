@@ -15,12 +15,12 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: None,
         force_fallback_adapter: true,
-        apply_limit_buckets: false,
     }))?;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("consumer"),
@@ -31,7 +31,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         trace: wgpu::Trace::Off,
     }))?;
 
-    let mut player = mpv_wgpu_player::Player::new(&device, &queue)?;
+    let mut player =
+        mpv_wgpu_player::Player::new(&device, &queue, mpv_wgpu_player::PlayerOptions::default())?;
     player.set_playback(Playback::Paused)?;
     println!("playback={}", player.playback());
 
