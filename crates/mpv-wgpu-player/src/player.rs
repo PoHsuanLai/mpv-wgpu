@@ -1,5 +1,6 @@
 //! libmpv core, software frames, and the wgpu picture.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -9,9 +10,14 @@ use rsmpv::{EndFileReason, Event as MpvEvent, Format, Mpv, PropertyData};
 
 use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
 
+use crate::chapters::{Chapter, ChapterIndex};
+use crate::controls::{Direction, ScreenshotContent, VideoPresence};
 use crate::frame_buffer::FrameBuffer;
+use crate::media::MediaState;
 use crate::options::PlayerOptions;
 use crate::pipeline::{Gpu, Pipeline};
+use crate::quantities::{Speed, Volume};
+use crate::tracks::{TrackChoice, TrackKind, TrackList};
 use crate::types::{
     Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture, Playback,
     Presentation, Slot, SlotSize, map_mpv,
@@ -86,6 +92,7 @@ struct Shared {
     equalizer: Equalizer,
     position: Option<Finite>,
     duration: Option<Finite>,
+    media: MediaState,
     coefficients: Coefficients,
     transfer: TransferNote,
     hwdec: HwdecLog,
@@ -163,6 +170,7 @@ impl Player {
                 equalizer: Equalizer::default(),
                 position: None,
                 duration: None,
+                media: MediaState::new(),
                 coefficients: Coefficients::Bt709,
                 transfer: TransferNote::Unseen,
                 hwdec: HwdecLog::Unseen,
@@ -362,6 +370,101 @@ impl Player {
         lock(&self.shared).mute
     }
 
+    /// Every track of the current file. Empty until mpv has read the file.
+    ///
+    /// Changes arrive as [`Event::TracksChanged`].
+    pub fn tracks(&self) -> TrackList {
+        lock(&self.shared).media.tracks.clone()
+    }
+
+    /// Choose the track of `kind` mpv plays, or turn the kind off.
+    ///
+    /// The selection shows in [`Player::tracks`] after the next [`Player::poll`].
+    pub fn select_track(&self, kind: TrackKind, choice: TrackChoice) -> Result<(), Error> {
+        self.core
+            .set_property(kind.option(), choice.as_mpv().as_str())
+            .map_err(map_mpv)
+    }
+
+    /// Whether the current file shows a picture, from the selected video track.
+    ///
+    /// A cover image attached to an audio file is [`VideoPresence::CoverArt`].
+    pub fn has_video(&self) -> VideoPresence {
+        VideoPresence::of(&lock(&self.shared).media.tracks)
+    }
+
+    /// The chapters of the current file, in order. Empty without chapters.
+    ///
+    /// Changes arrive as [`Event::ChaptersChanged`].
+    pub fn chapters(&self) -> Vec<Chapter> {
+        lock(&self.shared).media.chapters.clone()
+    }
+
+    /// The chapter playback is in, once mpv has reported one.
+    pub fn chapter(&self) -> Option<ChapterIndex> {
+        lock(&self.shared).media.chapter
+    }
+
+    /// Seek to the start of a chapter.
+    ///
+    /// Fails with [`Error::NoSuchChapter`] when `index` is past the last chapter.
+    pub fn set_chapter(&self, index: ChapterIndex) -> Result<(), Error> {
+        if index.get() as usize >= lock(&self.shared).media.chapters.len() {
+            return Err(Error::NoSuchChapter(index.get()));
+        }
+        self.core
+            .set_property("chapter", i64::from(index.get()))
+            .map_err(map_mpv)
+    }
+
+    /// Set the absolute volume. [`Player::adjust`] with [`Adjust::Volume`] adds a delta.
+    pub fn set_volume(&self, volume: Volume) -> Result<(), Error> {
+        self.core
+            .set_property("volume", volume.to_mpv())
+            .map_err(map_mpv)
+    }
+
+    /// The volume mpv holds right now, read from the core.
+    pub fn volume(&self) -> Volume {
+        self.core
+            .get_property::<f64>("volume")
+            .ok()
+            .and_then(Volume::from_mpv)
+            .unwrap_or(lock(&self.shared).media.volume)
+    }
+
+    /// Set the playback speed.
+    pub fn set_speed(&self, speed: Speed) -> Result<(), Error> {
+        self.core
+            .set_property("speed", speed.ratio())
+            .map_err(map_mpv)
+    }
+
+    /// The playback speed mpv holds right now, read from the core.
+    pub fn speed(&self) -> Speed {
+        self.core
+            .get_property::<f64>("speed")
+            .ok()
+            .and_then(Speed::from_mpv)
+            .unwrap_or(Speed::NORMAL)
+    }
+
+    /// Step one frame and pause. Needs a video track.
+    pub fn frame_step(&self, direction: Direction) -> Result<(), Error> {
+        self.core.command(&[direction.command()]).map_err(map_mpv)
+    }
+
+    /// Write the current frame to `path`; the extension picks the image format.
+    ///
+    /// [`ScreenshotContent::Video`] and [`ScreenshotContent::Subtitles`] are at
+    /// source resolution, whatever the slot size.
+    pub fn screenshot_to_file(&self, path: &Path, content: ScreenshotContent) -> Result<(), Error> {
+        let path = path.to_str().ok_or(Error::PathNotUtf8)?;
+        self.core
+            .command(&["screenshot-to-file", path, content.as_mpv()])
+            .map_err(map_mpv)
+    }
+
     /// Escape hatch to `mpv_command`. The slice is forwarded unchanged.
     pub fn command(&self, args: &[&str]) -> Result<(), Error> {
         self.core.command(args).map_err(map_mpv)
@@ -406,6 +509,9 @@ impl Player {
 
     fn ingest_property(&mut self, name: &str, data: PropertyData) {
         let mut shared = lock(&self.shared);
+        if let Some(event) = shared.media.apply(name, &data) {
+            self.events.push(event);
+        }
         match name {
             "pause" => {
                 if let PropertyData::Flag(paused) = data {
@@ -627,6 +733,7 @@ fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
         ("keep-open", "yes"),
         ("video-sync", "audio"),
         ("sub-visibility", "yes"),
+        ("volume-max", "150"),
         ("osc", "no"),
         ("input-default-bindings", "no"),
         ("input-vo-keyboard", "no"),
@@ -680,8 +787,19 @@ fn observe(core: &Mpv) -> Result<(), Error> {
         "saturation",
         "gamma",
         "hue",
+        "volume",
     ] {
         core.observe_property(1, name, Format::Double)
+            .map_err(map_mpv)?;
+    }
+    core.observe_property(1, "seeking", Format::Flag)
+        .map_err(map_mpv)?;
+    for name in ["chapter", "cache-buffering-state"] {
+        core.observe_property(1, name, Format::Int64)
+            .map_err(map_mpv)?;
+    }
+    for name in ["track-list", "chapter-list"] {
+        core.observe_property(1, name, Format::Node)
             .map_err(map_mpv)?;
     }
     for name in [

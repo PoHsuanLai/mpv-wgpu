@@ -65,15 +65,28 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]
 
+mod chapters;
+mod controls;
 mod frame_buffer;
+mod media;
+mod nodes;
 mod options;
 mod pipeline;
 mod player;
+mod quantities;
+mod tracks;
 mod types;
 
+pub use chapters::{Chapter, ChapterIndex};
+pub use controls::{Direction, ScreenshotContent, VideoPresence};
 pub use mpv_wgpu::{Equalizer, Hue, UnitBias};
 pub use options::{AudioOutput, PlayerOptions};
 pub use player::Player;
+pub use quantities::{Percent, Speed, Volume};
+pub use tracks::{
+    Track, TrackArt, TrackChoice, TrackDefault, TrackId, TrackKind, TrackList, TrackOrigin,
+    TrackSelection,
+};
 pub use types::{
     Adjust, Deinterlace, EndReason, Error, Event, Finite, MpvError, Mute, Outcome, Picture,
     Playback, Presentation, Seek, Slot, SlotSize,
