@@ -32,8 +32,8 @@ pub struct PresentJob {
 /// 8×8 Bayer matrix, entries `0..64`.
 const BAYER8: [u8; 64] = [
     0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60,
-    28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47,
-    7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
+    28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15,
+    47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21,
 ];
 
 /// Cubic Hermite in the ST 2084 domain.
@@ -44,6 +44,8 @@ pub fn spline_tone_map(linear: f32, source_peak_nits: f32, target_peak_nits: f32
     if linear <= 0.0 {
         return 0.0;
     }
+    // `>` is false for NaN, so a NaN peak also returns the sample unchanged.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(source_peak_nits > target_peak_nits) {
         return linear;
     }
@@ -143,7 +145,11 @@ mod tests {
     fn neutral_equalizer_leaves_a_ramp_unchanged() {
         let ramp = [0.0, 0.25, 0.5, 0.75, 1.0];
         for value in ramp {
-            let out = grade_rgb([value, value, value], Equalizer::default(), Coefficients::Bt709);
+            let out = grade_rgb(
+                [value, value, value],
+                Equalizer::default(),
+                Coefficients::Bt709,
+            );
             near(out[0], value);
             near(out[1], value);
             near(out[2], value);

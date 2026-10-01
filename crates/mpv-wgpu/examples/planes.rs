@@ -107,7 +107,7 @@ fn yuv_code(
             target_peak_nits: 100.0,
         },
     )?;
-    Ok(first_code(device, queue, &target)?)
+    first_code(device, queue, &target)
 }
 
 fn rgba_code(
@@ -141,7 +141,7 @@ fn rgba_code(
             target_peak_nits: 100.0,
         },
     )?;
-    Ok(first_code(device, queue, &target)?)
+    first_code(device, queue, &target)
 }
 
 fn full_rect() -> PixelRect {
@@ -206,7 +206,7 @@ fn first_code(
         });
     device.poll(wgpu::PollType::wait_indefinitely())?;
     recv.recv()??;
-    let view = buffer.slice(..).get_mapped_range()?;
+    let view = buffer.slice(..).get_mapped_range();
     let code = view[0];
     drop(view);
     buffer.unmap();
@@ -232,7 +232,6 @@ fn open_device() -> Result<(wgpu::Device, wgpu::Queue), Box<dyn std::error::Erro
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: fallback,
-                apply_limit_buckets: false,
             })) {
                 Ok(adapter) => adapter,
                 Err(err) => {

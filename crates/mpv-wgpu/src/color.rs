@@ -86,9 +86,9 @@ const PQ_C1: f32 = 3424.0 / 4096.0;
 const PQ_C2: f32 = 2413.0 / 128.0;
 const PQ_C3: f32 = 2392.0 / 128.0;
 
-const HLG_A: f32 = 0.17883277;
-const HLG_B: f32 = 0.28466892;
-const HLG_C: f32 = 0.55991073;
+const HLG_A: f32 = 0.178_832_77;
+const HLG_B: f32 = 0.284_668_92;
+const HLG_C: f32 = 0.559_910_7;
 
 /// ST 2084 forward OETF. Nits map into a 0..1 signal.
 pub fn pq_nits_to_signal(nits: f32) -> f32 {

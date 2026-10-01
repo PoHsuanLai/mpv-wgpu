@@ -164,8 +164,16 @@ impl Pipeline {
 impl Gpu {
     pub fn new(device: &wgpu::Device, pipeline: &Pipeline, size: SlotSize) -> Result<Self, Error> {
         let uploads = [
-            plane(device, size, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING)?,
-            plane(device, size, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING)?,
+            plane(
+                device,
+                size,
+                wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            )?,
+            plane(
+                device,
+                size,
+                wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            )?,
         ];
         let output = plane(
             device,
@@ -195,11 +203,7 @@ impl Gpu {
         &self.output_view
     }
 
-    pub fn upload_bytes(
-        &self,
-        queue: &wgpu::Queue,
-        frame: &FrameBuffer,
-    ) -> Result<(), Error> {
+    pub fn upload_bytes(&self, queue: &wgpu::Queue, frame: &FrameBuffer) -> Result<(), Error> {
         let stride = frame.stride();
         let height = frame.height();
         let width = frame.width();
@@ -280,7 +284,11 @@ fn frame_bytes(frame: &FrameBuffer) -> &[u8] {
     frame.pixels()
 }
 
-fn plane(device: &wgpu::Device, size: SlotSize, usage: wgpu::TextureUsages) -> Result<Plane, Error> {
+fn plane(
+    device: &wgpu::Device,
+    size: SlotSize,
+    usage: wgpu::TextureUsages,
+) -> Result<Plane, Error> {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("mpv-wgpu-plane"),
         size: wgpu::Extent3d {
@@ -343,7 +351,9 @@ mod tests {
             .types
             .iter()
             .find_map(|(_, ty)| match &ty.inner {
-                naga::TypeInner::Struct { members, span } if ty.name.as_deref() == Some("VideoParams") => {
+                naga::TypeInner::Struct { members, span }
+                    if ty.name.as_deref() == Some("VideoParams") =>
+                {
                     Some((members, *span))
                 }
                 _ => None,
@@ -367,7 +377,10 @@ mod tests {
             std::mem::offset_of!(VideoParams, gamma_exp),
             gamma.offset as usize
         );
-        assert_eq!(std::mem::offset_of!(VideoParams, bias), bias.offset as usize);
+        assert_eq!(
+            std::mem::offset_of!(VideoParams, bias),
+            bias.offset as usize
+        );
         assert_eq!(std::mem::align_of::<VideoParams>(), 16);
     }
 

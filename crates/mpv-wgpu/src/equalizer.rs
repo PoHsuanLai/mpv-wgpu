@@ -77,9 +77,8 @@ fn mul(a: [f32; 9], b: [f32; 9]) -> [f32; 9] {
     let mut c = [0.0; 9];
     for col in 0..3 {
         for row in 0..3 {
-            c[col * 3 + row] = a[row] * b[col * 3]
-                + a[3 + row] * b[col * 3 + 1]
-                + a[6 + row] * b[col * 3 + 2];
+            c[col * 3 + row] =
+                a[row] * b[col * 3] + a[3 + row] * b[col * 3 + 1] + a[6 + row] * b[col * 3 + 2];
         }
     }
     c
@@ -91,10 +90,7 @@ mod tests {
     use super::*;
 
     fn near(value: f32, expected: f32) {
-        assert!(
-            (value - expected).abs() <= 1e-5,
-            "{value} vs {expected}"
-        );
+        assert!((value - expected).abs() <= 1e-5, "{value} vs {expected}");
     }
 
     #[test]

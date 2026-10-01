@@ -3,6 +3,8 @@
 use std::fmt;
 use std::num::NonZeroU32;
 
+use crate::quantities::Percent;
+
 /// Video slot the host wants mpv to fill, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
@@ -102,6 +104,9 @@ pub enum Deinterlace {
     /// Always deinterlace.
     Yes,
     /// Deinterlace when the frame is tagged interlaced.
+    ///
+    /// libmpv 0.37 only knows `yes` and `no`; there [`crate::Player::set_deinterlace`]
+    /// returns an mpv error for this mode and the player starts on [`Deinterlace::No`].
     Auto,
 }
 
@@ -188,7 +193,6 @@ pub enum Picture<'a> {
 
 /// Playback notifications drained by the latest [`crate::Player::poll`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Event {
     /// mpv finished opening the file.
     Loaded,
@@ -196,6 +200,16 @@ pub enum Event {
     Ended(EndReason),
     /// Pause state changed.
     Playback(Playback),
+    /// A seek landed and playback restarted from the new position.
+    SeekDone,
+    /// The demuxer cache level moved. Local files stay at [`Percent::FULL`].
+    Buffering(Percent),
+    /// The track list or the selected tracks changed.
+    TracksChanged,
+    /// The chapter list changed.
+    ChaptersChanged,
+    /// The volume changed, whoever asked for it. Read it with [`crate::Player::volume`].
+    VolumeChanged,
 }
 
 /// Why mpv stopped a file.
@@ -215,7 +229,6 @@ pub enum EndReason {
 
 /// Failure from the player.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum Error {
     /// libmpv rejected a call.
     #[error("mpv error {0}")]
@@ -226,6 +239,12 @@ pub enum Error {
     /// Creating a texture, buffer, or pipeline failed.
     #[error("gpu allocation failed")]
     Gpu,
+    /// A file path is not valid UTF-8, which mpv commands need.
+    #[error("path is not valid utf-8")]
+    PathNotUtf8,
+    /// The chapter index is past the last chapter of the file.
+    #[error("no chapter at index {0}")]
+    NoSuchChapter(u32),
 }
 
 /// Integer code from libmpv.

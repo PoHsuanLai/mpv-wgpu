@@ -1329,9 +1329,16 @@ mod tests {
             tol,
         );
 
-        let y16 = [0, 65535];
-        let chroma16 = [32768];
-        paint16(&mut renderer, &device, &queue, &y16, &chroma16, &chroma16);
+        if device
+            .features()
+            .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM)
+        {
+            let y16 = [0, 65535];
+            let chroma16 = [32768];
+            paint16(&mut renderer, &device, &queue, &y16, &chroma16, &chroma16);
+        } else {
+            eprintln!("16-bit-norm-unavailable: skipping the 16-bit readback");
+        }
 
         let y_up = [16, 235, 235, 16];
         paint_yuv(
@@ -2404,7 +2411,6 @@ mod tests {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: fallback,
-            apply_limit_buckets: false,
         }))
         .map_err(|err| err.to_string())
     }
@@ -2455,7 +2461,7 @@ mod tests {
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("poll readback");
         recv.recv().expect("map callback").expect("map buffer");
-        let view = buffer.slice(..).get_mapped_range().expect("mapped range");
+        let view = buffer.slice(..).get_mapped_range();
         let mut pixels = Vec::with_capacity((width * height) as usize);
         for row in 0..height as usize {
             let start = row * stride as usize;

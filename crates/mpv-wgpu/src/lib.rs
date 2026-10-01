@@ -133,6 +133,9 @@
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]
+// The draw path and its CPU twins take one argument per shader uniform; a
+// parameter struct would only restate `Draw`.
+#![allow(clippy::too_many_arguments)]
 
 mod color;
 mod cubic;

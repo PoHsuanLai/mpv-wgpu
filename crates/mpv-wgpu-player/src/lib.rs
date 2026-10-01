@@ -13,8 +13,10 @@
 //! # Requirements
 //!
 //! The build links libmpv. `pkg-config` must resolve the `mpv` module. The core
-//! starts with `vo=libmpv`, `hwdec=auto-safe`, `ao=pulse`, `video-sync=audio`,
-//! `idle=yes`, `keep-open=yes`, subtitles visible, and `deinterlace=auto`.
+//! starts with `vo=libmpv`, `hwdec=auto-safe`, `video-sync=audio`, `idle=yes`,
+//! `keep-open=yes`, subtitles visible, and `deinterlace=auto`. The audio driver
+//! comes from [`PlayerOptions::audio_output`]; [`AudioOutput::Auto`] leaves mpv
+//! to probe.
 //! The on-screen controller and the default key bindings are off.
 //! [`Player::command`] forwards any other `mpv_command`.
 //!
@@ -26,10 +28,10 @@
 //! ```ignore
 //! use std::num::NonZeroU32;
 //!
-//! use mpv_wgpu_player::{Picture, Player, Slot, SlotSize};
+//! use mpv_wgpu_player::{Picture, Player, PlayerOptions, Slot, SlotSize};
 //!
 //! fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
-//!     let mut player = Player::new(device, queue)?;
+//!     let mut player = Player::new(device, queue, PlayerOptions::default())?;
 //!     player.set_slot(Slot::Sized(SlotSize {
 //!         width: NonZeroU32::new(1280).expect("non-zero"),
 //!         height: NonZeroU32::new(720).expect("non-zero"),
@@ -42,6 +44,14 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # State and audio-only files
+//!
+//! [`Player::tracks`], [`Player::chapters`], [`Player::volume`] and the seek and
+//! cache state follow observed mpv properties and surface as [`Event`]s.
+//! Audio-only files keep [`Player::picture`] at [`Picture::Waiting`];
+//! embedded cover art plays as a video track and is shown
+//! ([`Player::has_video`] is [`VideoPresence::CoverArt`]).
 //!
 //! # Threading
 //!
@@ -63,13 +73,28 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used)]
 
+mod chapters;
+mod controls;
 mod frame_buffer;
+mod media;
+mod nodes;
+mod options;
 mod pipeline;
 mod player;
+mod quantities;
+mod tracks;
 mod types;
 
+pub use chapters::{Chapter, ChapterIndex};
+pub use controls::{Direction, ScreenshotContent, VideoPresence};
 pub use mpv_wgpu::{Equalizer, Hue, UnitBias};
+pub use options::{AudioOutput, PlayerOptions};
 pub use player::Player;
+pub use quantities::{Percent, Speed, Volume};
+pub use tracks::{
+    Track, TrackArt, TrackChoice, TrackDefault, TrackId, TrackKind, TrackList, TrackOrigin,
+    TrackSelection,
+};
 pub use types::{
     Adjust, Deinterlace, EndReason, Error, Event, Finite, MpvError, Mute, Outcome, Picture,
     Playback, Presentation, Seek, Slot, SlotSize,
