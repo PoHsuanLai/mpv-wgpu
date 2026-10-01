@@ -44,6 +44,8 @@ pub fn spline_tone_map(linear: f32, source_peak_nits: f32, target_peak_nits: f32
     if linear <= 0.0 {
         return 0.0;
     }
+    // `>` is false for NaN, so a NaN peak also returns the sample unchanged.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(source_peak_nits > target_peak_nits) {
         return linear;
     }

@@ -107,7 +107,7 @@ fn yuv_code(
             target_peak_nits: 100.0,
         },
     )?;
-    Ok(first_code(device, queue, &target)?)
+    first_code(device, queue, &target)
 }
 
 fn rgba_code(
@@ -141,7 +141,7 @@ fn rgba_code(
             target_peak_nits: 100.0,
         },
     )?;
-    Ok(first_code(device, queue, &target)?)
+    first_code(device, queue, &target)
 }
 
 fn full_rect() -> PixelRect {
