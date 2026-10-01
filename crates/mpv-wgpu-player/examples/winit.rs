@@ -291,7 +291,7 @@ impl Host {
                     ..Default::default()
                 });
                 gpu.blit.draw(&gpu.device, &gpu.queue, frame, &view);
-                gpu.queue.present(surface);
+                surface.present();
             }
             other => eprintln!("surface={other:?}"),
         }
@@ -356,7 +356,6 @@ impl Gpu {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
-            apply_limit_buckets: false,
         }))?;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("example"),
@@ -388,7 +387,6 @@ impl Gpu {
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
-            color_space: wgpu::SurfaceColorSpace::Auto,
         };
         surface.configure(&device, &config);
         let blit = Blit::new(&device, format);

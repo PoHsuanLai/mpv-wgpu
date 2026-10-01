@@ -11,10 +11,10 @@ keywords = ["wgpu", "video", "yuv", "graphics"]
 categories = ["multimedia::video", "graphics", "rendering"]
 
 [dependencies]
-wgpu = "30"
+wgpu = "29"
 bytemuck = { version = "1", features = ["derive"] }
 thiserror = "2"
 
 [dev-dependencies]
 pollster = "0.4"
-naga = "30"
+naga = "29"
