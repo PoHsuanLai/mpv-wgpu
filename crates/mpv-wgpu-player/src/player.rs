@@ -609,6 +609,9 @@ impl Player {
         let Stage::Live { .. } = &self.stage else {
             return Ok(Presentation::Unchanged);
         };
+        if self.has_video() == VideoPresence::Absent {
+            return Ok(self.withdraw_picture());
+        }
         let frame_flag = self.render.update();
         let info = if frame_flag {
             self.render.next_frame_info().map_err(map_mpv)?
@@ -637,6 +640,18 @@ impl Player {
             return Ok(Presentation::Unchanged);
         }
         self.paint(software, coefficients, equalizer, report)
+    }
+
+    /// Audio-only or no file: there is nothing to sample, so the picture goes
+    /// back to waiting instead of showing a black frame.
+    fn withdraw_picture(&mut self) -> Presentation {
+        match &mut self.stage {
+            Stage::Live { shown, .. } if matches!(shown, Shown::Current) => {
+                *shown = Shown::Waiting;
+                Presentation::Updated
+            }
+            Stage::Live { .. } | Stage::NoSlot => Presentation::Unchanged,
+        }
     }
 
     fn paint(
@@ -734,6 +749,7 @@ fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
         ("video-sync", "audio"),
         ("sub-visibility", "yes"),
         ("volume-max", "150"),
+        ("audio-display", "embedded-first"),
         ("osc", "no"),
         ("input-default-bindings", "no"),
         ("input-vo-keyboard", "no"),
