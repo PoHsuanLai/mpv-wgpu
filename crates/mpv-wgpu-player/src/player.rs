@@ -134,6 +134,9 @@ impl Player {
         options: PlayerOptions,
     ) -> Result<Self, Error> {
         let core = build_core(options)?;
+        if core.set_property("deinterlace", "auto").is_err() {
+            log::info!("this libmpv rejects deinterlace=auto; keeping its default");
+        }
         let core = Arc::new(core);
         let mut render = OwnedRenderContext::new_software(Arc::clone(&core)).map_err(map_mpv)?;
         let notify = Notify::new();
@@ -624,7 +627,6 @@ fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
         ("keep-open", "yes"),
         ("video-sync", "audio"),
         ("sub-visibility", "yes"),
-        ("deinterlace", "auto"),
         ("osc", "no"),
         ("input-default-bindings", "no"),
         ("input-vo-keyboard", "no"),

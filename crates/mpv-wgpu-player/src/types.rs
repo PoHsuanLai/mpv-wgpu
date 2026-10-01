@@ -102,6 +102,9 @@ pub enum Deinterlace {
     /// Always deinterlace.
     Yes,
     /// Deinterlace when the frame is tagged interlaced.
+    ///
+    /// libmpv 0.37 only knows `yes` and `no`; there [`crate::Player::set_deinterlace`]
+    /// returns an mpv error for this mode and the player starts on [`Deinterlace::No`].
     Auto,
 }
 
