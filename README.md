@@ -117,6 +117,8 @@ The pixel contract is in the [picture crate README](crates/mpv-wgpu/README.md). 
 
 The core starts at `hwdec=auto-safe`, `video-sync=audio`, `video-timing-offset=0`, `idle=yes`, `keep-open=yes`, `sub-visibility=yes`, `deinterlace=auto`. `osc`, `input-default-bindings`, and `input-vo-keyboard` are off. The audio driver is `PlayerOptions::audio_output` (`AudioOutput::Auto` by default, which lets mpv probe; the literal `ao=auto` is not a driver name). `Player::command` is `mpv_command`. `set_notify` is the wakeup callback and must only wake the host. `report_swap` runs only after a poll that consumed a frame.
 
+The player also exposes typed tracks, chapters, absolute volume, speed, frame step, and full-resolution screenshots, with events for seeks, cache level, and track, chapter, and volume changes. Audio-only files keep `picture()` at `Waiting`, and embedded cover art is shown. See the [player crate README](crates/mpv-wgpu-player/README.md).
+
 `set_equalizer` sets mpv's `brightness`, `contrast`, `saturation`, `gamma`, and `hue`, and the blit bakes the same values again. A non-zero grade is applied twice. Zeros stay identity. Hue on the public type is degrees, −180..=180. The mpv property stays −100..=100, and the player scales by 100/180.
 
 ```rust
@@ -143,7 +145,7 @@ fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), m
 
 ## Building
 
-Rust 1.87 or newer.
+Rust 1.87 or newer. Both crates build against wgpu 29.
 
 ```sh
 cargo test -p mpv-wgpu            # picture crate, no libmpv

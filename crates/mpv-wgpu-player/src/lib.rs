@@ -45,6 +45,14 @@
 //! }
 //! ```
 //!
+//! # State and audio-only files
+//!
+//! [`Player::tracks`], [`Player::chapters`], [`Player::volume`] and the seek and
+//! cache state follow observed mpv properties and surface as [`Event`]s.
+//! Audio-only files keep [`Player::picture`] at [`Picture::Waiting`];
+//! embedded cover art plays as a video track and is shown
+//! ([`Player::has_video`] is [`VideoPresence::CoverArt`]).
+//!
 //! # Threading
 //!
 //! [`Player`] is [`Send`] and not [`Sync`]. Call [`Player::poll`] on the thread

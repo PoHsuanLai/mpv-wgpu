@@ -82,7 +82,9 @@ The core is created with:
 | `video-sync` | `audio` |
 | `video-timing-offset` | `0` |
 | `sub-visibility` | `yes` |
-| `deinterlace` | `auto` |
+| `deinterlace` | `auto`, kept at mpv's default when this libmpv rejects it (0.37 does) |
+| `volume-max` | `150` |
+| `audio-display` | `embedded-first` |
 | `osc` | `no` |
 | `input-default-bindings`, `input-vo-keyboard` | `no` |
 
@@ -103,6 +105,33 @@ Hardware decode may run inside libmpv. The texture the host samples is still the
 `Equalizer` is brightness, contrast, saturation, and gamma in −100..=100, plus hue in −180..=180 degrees. mpv's own hue property is −100..=100. The player sends `degrees * 100 / 180` and reads the echo back with `round(raw * 180 / 100)` before any integer rounding of the mpv value.
 
 `set_equalizer` writes those knobs into libmpv and the blit applies the same knobs again. A non-zero grade is applied twice. All zeros stay identity on both stages.
+
+## State, tracks, and chapters
+
+Tracks, chapters, volume, and the seek and cache state are mirrored from observed mpv properties. Each change shows up in `events()` after the `poll` that saw it. Reads never block on mpv, except `volume` and `speed`, which ask the core directly and so reflect a `set_*` made a moment ago.
+
+| Call | Meaning |
+| --- | --- |
+| `tracks() -> TrackList` | Every track: `id`, `kind` (`Video`, `Audio`, `Subtitle`), `title`, `lang`, `codec`, `default` (`TrackDefault`), `selected` (`TrackSelection`), `origin` (`TrackOrigin::External` for a sidecar file), `art` (`TrackArt::Cover` for attached images). Ids count from 1 within each kind. |
+| `select_track(TrackKind, TrackChoice)` | `Off`, `Auto`, or `Id(TrackId)`; sets mpv's `vid` / `aid` / `sid`. |
+| `chapters() -> Vec<Chapter>`, `chapter()`, `set_chapter(ChapterIndex)` | Titles and start seconds. `set_chapter` seeks and fails with `Error::NoSuchChapter` past the end. |
+| `set_volume(Volume)`, `volume()` | Absolute percent. `Volume` is clamped to `0..=150`; above 100 mpv amplifies and can clip. `adjust(Adjust::Volume)` still adds a delta. |
+| `set_speed(Speed)`, `speed()` | Multiples of normal, `0.01..=100`, stored in thousandths. |
+| `frame_step(Direction)` | `frame-step` or `frame-back-step`. mpv pauses. |
+| `screenshot_to_file(&Path, ScreenshotContent)` | mpv's `screenshot-to-file`; the extension picks the format. `Video` and `Subtitles` are at source resolution, `Window` is the slot size with OSD. This is the full-resolution "save current frame". |
+| `has_video() -> VideoPresence` | `Absent`, `CoverArt`, or `Present`, from the selected video track. |
+
+New events: `SeekDone`, `Buffering(Percent)`, `TracksChanged`, `ChaptersChanged`, `VolumeChanged`. `Buffering` fires when mpv's `cache-buffering-state` moves; local files stay at 100 and never fire it. `VolumeChanged` fires for any change, whoever asked, and carries no value: read `volume()`. `command(&[&str])` stays the escape hatch.
+
+## Audio-only files
+
+An audio file loads and fires `Event::Loaded` like any other. With no video track `has_video()` is `Absent` and `picture()` is `Picture::Waiting`: the player does not paint a black frame, and a picture that was showing from the previous file goes back to `Waiting` with `Presentation::Updated`. With `keep-open=yes` the file does not end with `Event::Ended` at the last sample. mpv pauses, which arrives as `Event::Playback(Playback::Paused)`.
+
+Embedded cover art (the tests use an MP3 with an attached PNG) is a video track with the `albumart` flag under `audio-display=embedded-first`. The player renders it as a still: `has_video()` is `CoverArt`, `Track::art` is `TrackArt::Cover`, and `picture()` is `Shown` like any frame, letterboxed into the slot. Hosts that want no artwork can call `select_track(TrackKind::Video, TrackChoice::Off)`.
+
+## Tests
+
+`cargo test -p mpv-wgpu-player` also runs `tests/playback.rs` and `tests/audio_only.rs`. They open a wgpu adapter (the fallback adapter first, so a software Vulkan driver is enough), start a `Player` on `AudioOutput::Null`, and play the small files in `tests/fixtures`. When no adapter can be opened they print `gpu-device-unavailable` and pass without running.
 
 ## Examples
 
