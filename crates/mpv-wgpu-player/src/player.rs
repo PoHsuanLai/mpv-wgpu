@@ -10,6 +10,7 @@ use rsmpv::{EndFileReason, Event as MpvEvent, Format, Mpv, PropertyData};
 use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
 
 use crate::frame_buffer::FrameBuffer;
+use crate::options::PlayerOptions;
 use crate::pipeline::{Gpu, Pipeline};
 use crate::types::{
     Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture, Playback,
@@ -123,39 +124,16 @@ pub struct Player {
 impl Player {
     /// Start a headless libmpv core on `device` / `queue`.
     ///
+    /// `options` picks the audio driver; [`PlayerOptions::default`] lets mpv probe.
+    ///
     /// The core is idle until [`Player::load`]. Register [`Player::set_notify`]
     /// before relying on wakes; a wake that arrives first is remembered.
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
-        let core = Mpv::builder()
-            .map_err(map_mpv)?
-            .set_property("vo", "libmpv")
-            .map_err(map_mpv)?
-            .set_property("hwdec", "auto-safe")
-            .map_err(map_mpv)?
-            .set_property("ao", "pulse")
-            .map_err(map_mpv)?
-            .set_property("vid", "auto")
-            .map_err(map_mpv)?
-            .set_property("idle", "yes")
-            .map_err(map_mpv)?
-            .set_property("keep-open", "yes")
-            .map_err(map_mpv)?
-            .set_property("video-timing-offset", 0.0_f64)
-            .map_err(map_mpv)?
-            .set_property("video-sync", "audio")
-            .map_err(map_mpv)?
-            .set_property("sub-visibility", "yes")
-            .map_err(map_mpv)?
-            .set_property("deinterlace", "auto")
-            .map_err(map_mpv)?
-            .set_property("osc", "no")
-            .map_err(map_mpv)?
-            .set_property("input-default-bindings", "no")
-            .map_err(map_mpv)?
-            .set_property("input-vo-keyboard", "no")
-            .map_err(map_mpv)?
-            .build()
-            .map_err(map_mpv)?;
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        options: PlayerOptions,
+    ) -> Result<Self, Error> {
+        let core = build_core(options)?;
         let core = Arc::new(core);
         let mut render = OwnedRenderContext::new_software(Arc::clone(&core)).map_err(map_mpv)?;
         let notify = Notify::new();
@@ -583,7 +561,10 @@ impl Player {
                 gpu.upload_bytes(&self.queue, &self.frames)?;
             }
             self.stats.upload += started.elapsed();
-            self.stats.bytes = self.stats.bytes.saturating_add(self.frames.pixels().len() as u64);
+            self.stats.bytes = self
+                .stats
+                .bytes
+                .saturating_add(self.frames.pixels().len() as u64);
             self.stats.frames = self.stats.frames.saturating_add(1);
         }
         let grade = bake(equalizer, coefficients);
@@ -633,6 +614,34 @@ impl Player {
     }
 }
 
+fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
+    let mut builder = Mpv::builder().map_err(map_mpv)?;
+    let mut settings: Vec<(&str, &str)> = vec![
+        ("vo", "libmpv"),
+        ("hwdec", "auto-safe"),
+        ("vid", "auto"),
+        ("idle", "yes"),
+        ("keep-open", "yes"),
+        ("video-sync", "audio"),
+        ("sub-visibility", "yes"),
+        ("deinterlace", "auto"),
+        ("osc", "no"),
+        ("input-default-bindings", "no"),
+        ("input-vo-keyboard", "no"),
+    ];
+    if let Some(driver) = options.audio_output.as_mpv() {
+        settings.push(("ao", driver));
+    }
+    for (name, value) in settings {
+        builder = builder.set_property(name, value).map_err(map_mpv)?;
+    }
+    builder
+        .set_property("video-timing-offset", 0.0_f64)
+        .map_err(map_mpv)?
+        .build()
+        .map_err(map_mpv)
+}
+
 fn next_frame(ready: bool, info: FrameInfo) -> NextFrame {
     if !ready || !info.present {
         NextFrame::Absent
@@ -657,15 +666,21 @@ fn end_reason(reason: EndFileReason) -> EndReason {
 }
 
 fn observe(core: &Mpv) -> Result<(), Error> {
-    let flags = [
-        ("pause", Format::Flag),
-        ("mute", Format::Flag),
-    ];
+    let flags = [("pause", Format::Flag), ("mute", Format::Flag)];
     for (name, format) in flags {
         core.observe_property(1, name, format).map_err(map_mpv)?;
     }
-    for name in ["time-pos", "duration", "brightness", "contrast", "saturation", "gamma", "hue"] {
-        core.observe_property(1, name, Format::Double).map_err(map_mpv)?;
+    for name in [
+        "time-pos",
+        "duration",
+        "brightness",
+        "contrast",
+        "saturation",
+        "gamma",
+        "hue",
+    ] {
+        core.observe_property(1, name, Format::Double)
+            .map_err(map_mpv)?;
     }
     for name in [
         "deinterlace",
@@ -673,7 +688,8 @@ fn observe(core: &Mpv) -> Result<(), Error> {
         "video-params/colormatrix",
         "video-params/gamma",
     ] {
-        core.observe_property(1, name, Format::String).map_err(map_mpv)?;
+        core.observe_property(1, name, Format::String)
+            .map_err(map_mpv)?;
     }
     Ok(())
 }

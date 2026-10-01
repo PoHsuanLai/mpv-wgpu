@@ -78,7 +78,9 @@ impl ApplicationHandler<Wake> for Host {
             return;
         }
         let window = match event_loop.create_window(
-            Window::default_attributes().with_title("mpv-wgpu").with_inner_size(PhysicalSize::new(960, 540)),
+            Window::default_attributes()
+                .with_title("mpv-wgpu")
+                .with_inner_size(PhysicalSize::new(960, 540)),
         ) {
             Ok(window) => Arc::new(window),
             Err(err) => {
@@ -95,7 +97,11 @@ impl ApplicationHandler<Wake> for Host {
                 return;
             }
         };
-        let mut player = match mpv_wgpu_player::Player::new(&gpu.device, &gpu.queue) {
+        let mut player = match mpv_wgpu_player::Player::new(
+            &gpu.device,
+            &gpu.queue,
+            mpv_wgpu_player::PlayerOptions::default(),
+        ) {
             Ok(player) => player,
             Err(err) => {
                 eprintln!("player={err}");
@@ -151,10 +157,7 @@ impl ApplicationHandler<Wake> for Host {
                     event_loop.exit();
                 }
             }
-            WindowEvent::KeyboardInput {
-                event: key,
-                ..
-            } => self.key(event_loop, key),
+            WindowEvent::KeyboardInput { event: key, .. } => self.key(event_loop, key),
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
@@ -323,7 +326,11 @@ fn adjust(
     player.adjust(kind(amount))
 }
 
-fn bump_eq(player: &mpv_wgpu_player::Player, field: EqField, delta: i32) -> Result<(), mpv_wgpu_player::Error> {
+fn bump_eq(
+    player: &mpv_wgpu_player::Player,
+    field: EqField,
+    delta: i32,
+) -> Result<(), mpv_wgpu_player::Error> {
     let mut eq = player.equalizer();
     match field {
         EqField::Contrast => eq.contrast = UnitBias::new(eq.contrast.get().saturating_add(delta)),
@@ -339,7 +346,10 @@ fn bump_eq(player: &mpv_wgpu_player::Player, field: EqField, delta: i32) -> Resu
     player.set_equalizer(eq)
 }
 
-fn apply_slot(player: &mut mpv_wgpu_player::Player, size: PhysicalSize<u32>) -> Result<(), mpv_wgpu_player::Error> {
+fn apply_slot(
+    player: &mut mpv_wgpu_player::Player,
+    size: PhysicalSize<u32>,
+) -> Result<(), mpv_wgpu_player::Error> {
     let slot = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
         (Some(width), Some(height)) => Slot::Sized(SlotSize { width, height }),
         _ => Slot::Empty,
@@ -357,14 +367,15 @@ impl Gpu {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         }))?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("example"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-        }))?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("example"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            }))?;
         let caps = surface.get_capabilities(&adapter);
         let format = caps
             .formats

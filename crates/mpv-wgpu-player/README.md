@@ -42,10 +42,10 @@ docs.rs images do not ship libmpv, so rendered docs for this crate can fail ther
 ```rust
 use std::num::NonZeroU32;
 
-use mpv_wgpu_player::{Event, Picture, Player, Slot, SlotSize};
+use mpv_wgpu_player::{Event, Picture, Player, PlayerOptions, Slot, SlotSize};
 
 fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
-    let mut player = Player::new(device, queue)?;
+    let mut player = Player::new(device, queue, PlayerOptions::default())?;
     player.set_notify(|| {
         // Wake the host thread. Do not call into the player from here.
     });
@@ -76,7 +76,7 @@ The core is created with:
 | --- | --- |
 | `vo` | `libmpv` |
 | `hwdec` | `auto-safe` |
-| `ao` | `pulse` |
+| `ao` | from `PlayerOptions::audio_output`; unset for `AudioOutput::Auto` |
 | `idle` | `yes` |
 | `keep-open` | `yes` |
 | `video-sync` | `audio` |
@@ -86,9 +86,15 @@ The core is created with:
 | `osc` | `no` |
 | `input-default-bindings`, `input-vo-keyboard` | `no` |
 
-Hardware decode may run inside libmpv. The texture the host samples is still the software RGB frame. `Player::command` forwards a string list to `mpv_command` for everything else, including another audio output.
+Hardware decode may run inside libmpv. The texture the host samples is still the software RGB frame. `Player::command` forwards a string list to `mpv_command` for everything else.
 
 `report_swap` runs only after a poll that consumed a new frame.
+
+## Audio output
+
+`PlayerOptions::audio_output` takes an `AudioOutput`: `Auto` (the default), `Pulse`, `PipeWire`, `Alsa`, `CoreAudio`, `Wasapi`, or `Null`.
+
+`Auto` does not write `ao`. mpv then probes every driver it was built with, in its own order, and falls through to the next one when a driver cannot open a device. `auto` is not a driver name for `--ao`: setting it is accepted at startup but fails when playback begins with `Audio output auto not found!`, and an audio-only file then ends with `EndReason::Error`. The named variants pin one driver and do not fall back, so a missing server ends an audio-only file with an error. `Null` decodes and clocks the audio and plays nothing, which suits headless runs.
 
 ## Controls
 

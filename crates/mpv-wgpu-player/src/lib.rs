@@ -13,8 +13,10 @@
 //! # Requirements
 //!
 //! The build links libmpv. `pkg-config` must resolve the `mpv` module. The core
-//! starts with `vo=libmpv`, `hwdec=auto-safe`, `ao=pulse`, `video-sync=audio`,
-//! `idle=yes`, `keep-open=yes`, subtitles visible, and `deinterlace=auto`.
+//! starts with `vo=libmpv`, `hwdec=auto-safe`, `video-sync=audio`, `idle=yes`,
+//! `keep-open=yes`, subtitles visible, and `deinterlace=auto`. The audio driver
+//! comes from [`PlayerOptions::audio_output`]; [`AudioOutput::Auto`] leaves mpv
+//! to probe.
 //! The on-screen controller and the default key bindings are off.
 //! [`Player::command`] forwards any other `mpv_command`.
 //!
@@ -26,10 +28,10 @@
 //! ```ignore
 //! use std::num::NonZeroU32;
 //!
-//! use mpv_wgpu_player::{Picture, Player, Slot, SlotSize};
+//! use mpv_wgpu_player::{Picture, Player, PlayerOptions, Slot, SlotSize};
 //!
 //! fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
-//!     let mut player = Player::new(device, queue)?;
+//!     let mut player = Player::new(device, queue, PlayerOptions::default())?;
 //!     player.set_slot(Slot::Sized(SlotSize {
 //!         width: NonZeroU32::new(1280).expect("non-zero"),
 //!         height: NonZeroU32::new(720).expect("non-zero"),
@@ -64,11 +66,13 @@
 #![deny(clippy::unwrap_used)]
 
 mod frame_buffer;
+mod options;
 mod pipeline;
 mod player;
 mod types;
 
 pub use mpv_wgpu::{Equalizer, Hue, UnitBias};
+pub use options::{AudioOutput, PlayerOptions};
 pub use player::Player;
 pub use types::{
     Adjust, Deinterlace, EndReason, Error, Event, Finite, MpvError, Mute, Outcome, Picture,

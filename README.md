@@ -115,17 +115,17 @@ The pixel contract is in the [picture crate README](crates/mpv-wgpu/README.md). 
 
 `set_slot` is the render size, in physical pixels. mpv runs `mp_get_src_dst_rects` into that slot, so letterbox, panscan, zoom, and rotation happen before the upload. `osd_draw_on_image` has already burned libass and OSD into the `rgb0` buffer. The wgpu pass is a 1:1 blit of that buffer into `Rgba8Unorm`. Sample it as non-sRGB. An sRGB swapchain encodes it again.
 
-The core starts at `hwdec=auto-safe`, `ao=pulse` (this libmpv rejects the driver name `auto`), `video-sync=audio`, `video-timing-offset=0`, `idle=yes`, `keep-open=yes`, `sub-visibility=yes`, `deinterlace=auto`. `osc`, `input-default-bindings`, and `input-vo-keyboard` are off. `Player::command` is `mpv_command`. `set_notify` is the wakeup callback and must only wake the host. `report_swap` runs only after a poll that consumed a frame.
+The core starts at `hwdec=auto-safe`, `video-sync=audio`, `video-timing-offset=0`, `idle=yes`, `keep-open=yes`, `sub-visibility=yes`, `deinterlace=auto`. `osc`, `input-default-bindings`, and `input-vo-keyboard` are off. The audio driver is `PlayerOptions::audio_output` (`AudioOutput::Auto` by default, which lets mpv probe; the literal `ao=auto` is not a driver name). `Player::command` is `mpv_command`. `set_notify` is the wakeup callback and must only wake the host. `report_swap` runs only after a poll that consumed a frame.
 
 `set_equalizer` sets mpv's `brightness`, `contrast`, `saturation`, `gamma`, and `hue`, and the blit bakes the same values again. A non-zero grade is applied twice. Zeros stay identity. Hue on the public type is degrees, −180..=180. The mpv property stays −100..=100, and the player scales by 100/180.
 
 ```rust
 use std::num::NonZeroU32;
 
-use mpv_wgpu_player::{Picture, Player, Slot, SlotSize};
+use mpv_wgpu_player::{Picture, Player, PlayerOptions, Slot, SlotSize};
 
 fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), mpv_wgpu_player::Error> {
-    let mut player = Player::new(device, queue)?;
+    let mut player = Player::new(device, queue, PlayerOptions::default())?;
     player.set_slot(Slot::Sized(SlotSize {
         width: NonZeroU32::new(1280).expect("non-zero"),
         height: NonZeroU32::new(720).expect("non-zero"),
