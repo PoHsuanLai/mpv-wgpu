@@ -967,6 +967,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpv-wgpu-cplugin"
+version = "0.1.0"
+dependencies = [
+ "mpv-wgpu-protocol",
+]
+
+[[package]]
 name = "mpv-wgpu-player"
 version = "0.1.0"
 dependencies = [
