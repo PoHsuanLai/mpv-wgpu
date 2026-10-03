@@ -983,6 +983,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mpv-wgpu-protocol"
+version = "0.1.0"
+dependencies = [
+ "rustix 1.1.5",
+]
+
+[[package]]
 name = "naga"
 version = "29.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
