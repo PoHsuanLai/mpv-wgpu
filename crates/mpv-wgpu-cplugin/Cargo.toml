@@ -1,0 +1,17 @@
+[package]
+name = "mpv-wgpu-cplugin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+description = "mpv C plugin for mpv-wgpu-player: a software render context that writes frames into a shared memfd ring"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/PoHsuanLai/mpv-wgpu"
+readme = "README.md"
+keywords = ["mpv", "plugin", "video"]
+categories = ["multimedia::video"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mpv-wgpu-protocol = { version = "0.1.0", path = "../mpv-wgpu-protocol" }
