@@ -71,24 +71,36 @@
 //! identity on both stages.
 
 #![forbid(unsafe_code)]
+#![cfg_attr(
+    not(any(feature = "in-process", feature = "subprocess")),
+    allow(unused)
+)]
 #![deny(clippy::unwrap_used)]
+
+#[cfg(not(any(feature = "in-process", feature = "subprocess")))]
+compile_error!("enable the `in-process` or the `subprocess` feature of mpv-wgpu-player");
 
 mod chapters;
 mod controls;
+mod core;
+#[cfg(feature = "in-process")]
 mod frame_buffer;
 mod media;
 mod nodes;
+mod notify;
 mod options;
 mod pipeline;
 mod player;
 mod quantities;
+mod stats;
 mod tracks;
 mod types;
+mod value;
 
 pub use chapters::{Chapter, ChapterIndex};
 pub use controls::{Direction, ScreenshotContent, VideoPresence};
 pub use mpv_wgpu::{Equalizer, Hue, UnitBias};
-pub use options::{AudioOutput, PlayerOptions};
+pub use options::{AudioOutput, Host, PlayerOptions, SubprocessOptions};
 pub use player::Player;
 pub use quantities::{Percent, Speed, Volume};
 pub use tracks::{

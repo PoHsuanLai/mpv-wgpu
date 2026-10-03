@@ -1,6 +1,6 @@
 //! Reading mpv's structured property values.
 
-use rsmpv::Node;
+use crate::value::Node;
 
 use crate::types::Finite;
 

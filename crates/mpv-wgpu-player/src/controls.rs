@@ -66,7 +66,7 @@ impl VideoPresence {
 
 #[cfg(test)]
 mod tests {
-    use rsmpv::Node;
+    use crate::value::Node;
 
     use super::*;
     use crate::tracks::parse_track_list;

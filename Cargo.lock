@@ -981,6 +981,8 @@ dependencies = [
  "env_logger",
  "log",
  "mpv-wgpu",
+ "mpv-wgpu-cplugin",
+ "mpv-wgpu-protocol",
  "naga",
  "pollster",
  "rsmpv",

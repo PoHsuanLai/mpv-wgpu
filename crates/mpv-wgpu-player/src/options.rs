@@ -1,6 +1,7 @@
 //! Construction-time choices for [`crate::Player`].
 
 use std::fmt;
+use std::path::PathBuf;
 
 /// The mpv audio output driver (`--ao`).
 ///
@@ -55,6 +56,49 @@ impl fmt::Display for AudioOutput {
 pub struct PlayerOptions {
     /// Which audio driver mpv opens.
     pub audio_output: AudioOutput,
+}
+
+/// Where the mpv core runs.
+///
+/// [`Host::InProcess`] links libmpv into the application: the `in-process`
+/// cargo feature, on by default. [`Host::Subprocess`] runs the user's own `mpv`
+/// executable as a child process with a small plugin loaded into it, and links
+/// no mpv code: the `subprocess` feature. [`Host::default`] is in-process when
+/// that feature is on, and subprocess otherwise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Host {
+    /// libmpv in this process.
+    InProcess,
+    /// The `mpv` executable as a child process.
+    Subprocess(SubprocessOptions),
+}
+
+impl Default for Host {
+    fn default() -> Self {
+        if cfg!(feature = "in-process") {
+            Host::InProcess
+        } else {
+            Host::Subprocess(SubprocessOptions::default())
+        }
+    }
+}
+
+/// How to find and start `mpv` for [`Host::Subprocess`].
+///
+/// The `mpv` executable comes from [`SubprocessOptions::mpv`], else the
+/// `MPV_WGPU_MPV` environment variable, else `mpv` on `PATH`. The plugin
+/// (`libmpv_wgpu_cplugin.so`, from the `mpv-wgpu-cplugin` crate) comes from
+/// [`SubprocessOptions::cplugin`], else `MPV_WGPU_CPLUGIN`, else the directory of
+/// the running executable or that directory's parent.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SubprocessOptions {
+    /// The `mpv` executable.
+    pub mpv: Option<PathBuf>,
+    /// The `mpv-wgpu-cplugin` shared library.
+    pub cplugin: Option<PathBuf>,
+    /// Extra mpv command-line options, such as `--hwdec=no`. They come after the
+    /// player's own, so they win.
+    pub extra_args: Vec<String>,
 }
 
 #[cfg(test)]
