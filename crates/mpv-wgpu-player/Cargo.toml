@@ -10,15 +10,25 @@ readme = "README.md"
 keywords = ["mpv", "libmpv", "wgpu", "video"]
 categories = ["multimedia::video", "api-bindings"]
 
+[features]
+default = ["in-process"]
+# libmpv linked into the process (today's behaviour).
+in-process = ["dep:rsmpv"]
+# The user's own `mpv` as a child process with `mpv-wgpu-cplugin` loaded into it. No libmpv anywhere.
+subprocess = ["dep:mpv-wgpu-protocol"]
+
 [dependencies]
 mpv-wgpu = { version = "0.1.0", path = "../mpv-wgpu" }
-rsmpv = { version = "0.2", features = ["render"] }
+rsmpv = { version = "0.2", features = ["render"], optional = true }
+mpv-wgpu-protocol = { version = "0.1.0", path = "../mpv-wgpu-protocol", optional = true }
 wgpu = "29"
 bytemuck = { version = "1", features = ["derive"] }
 thiserror = "2"
 log = "0.4"
 
 [dev-dependencies]
+# Builds the plugin library the subprocess tests load.
+mpv-wgpu-cplugin = { path = "../mpv-wgpu-cplugin" }
 winit = "0.30"
 pollster = "0.4"
 env_logger = "0.11"

@@ -1,6 +1,6 @@
 //! Player state mirrored from observed mpv properties.
 
-use rsmpv::PropertyData;
+use crate::value::PropertyData;
 
 use crate::chapters::{Chapter, ChapterIndex, parse_chapter_list};
 use crate::quantities::{Percent, Volume};
@@ -92,7 +92,7 @@ impl MediaState {
 
 #[cfg(test)]
 mod tests {
-    use rsmpv::Node;
+    use crate::value::Node;
 
     use super::*;
 
