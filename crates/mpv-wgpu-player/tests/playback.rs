@@ -1,6 +1,7 @@
 //! The typed state API against a generated clip: video, two audio tracks,
 //! one subtitle track, and two chapters. Headless, on `ao=null`.
 
+#[macro_use]
 mod support;
 
 use std::time::Duration;
@@ -9,14 +10,14 @@ use mpv_wgpu_player::{
     ChapterIndex, Direction, Error, Event, Picture, Playback, ScreenshotContent, Seek, Speed,
     TrackArt, TrackChoice, TrackDefault, TrackId, TrackKind, TrackSelection, VideoPresence, Volume,
 };
-use support::{Harness, scratch_dir};
+use support::{Harness, Mode, scratch_dir};
 
 fn id(value: u32) -> TrackId {
     TrackId::new(value).expect("non-zero id")
 }
 
-fn opened() -> Option<Harness> {
-    let mut harness = Harness::open()?.with_slot();
+fn opened(mode: Mode) -> Option<Harness> {
+    let mut harness = Harness::open(mode)?.with_slot();
     harness.load("clip.mkv");
     harness.wait_for("tracks and chapters", |h| {
         !h.player.tracks().is_empty() && !h.player.chapters().is_empty()
@@ -24,9 +25,8 @@ fn opened() -> Option<Harness> {
     Some(harness)
 }
 
-#[test]
-fn clip_lists_its_tracks_and_chapters() {
-    let Some(harness) = opened() else { return };
+fn clip_lists_its_tracks_and_chapters(mode: Mode) {
+    let Some(harness) = opened(mode) else { return };
     let tracks = harness.player.tracks();
     assert!(harness.saw(&Event::TracksChanged));
     assert!(harness.saw(&Event::ChaptersChanged));
@@ -57,9 +57,10 @@ fn clip_lists_its_tracks_and_chapters() {
     assert_eq!(harness.player.has_video(), VideoPresence::Present);
 }
 
-#[test]
-fn select_track_switches_audio_and_turns_subtitles_off() {
-    let Some(mut harness) = opened() else { return };
+fn select_track_switches_audio_and_turns_subtitles_off(mode: Mode) {
+    let Some(mut harness) = opened(mode) else {
+        return;
+    };
     harness.clear_events();
     harness
         .player
@@ -94,9 +95,10 @@ fn select_track_switches_audio_and_turns_subtitles_off() {
     });
 }
 
-#[test]
-fn volume_is_absolute_clamped_and_announced() {
-    let Some(mut harness) = opened() else { return };
+fn volume_is_absolute_clamped_and_announced(mode: Mode) {
+    let Some(mut harness) = opened(mode) else {
+        return;
+    };
     assert_eq!(harness.player.volume(), Volume::DEFAULT);
     harness.clear_events();
     harness
@@ -114,9 +116,8 @@ fn volume_is_absolute_clamped_and_announced() {
     assert_eq!(harness.player.volume().percent(), 150);
 }
 
-#[test]
-fn speed_round_trips() {
-    let Some(harness) = opened() else { return };
+fn speed_round_trips(mode: Mode) {
+    let Some(harness) = opened(mode) else { return };
     assert_eq!(harness.player.speed(), Speed::NORMAL);
     let double = Speed::from_ratio(mpv_wgpu_player::Finite::new(2.0).expect("finite"));
     harness.player.set_speed(double).expect("set speed");
@@ -124,9 +125,10 @@ fn speed_round_trips() {
     assert_eq!(harness.player.speed().ratio(), 2.0);
 }
 
-#[test]
-fn seek_reports_done_and_moves_the_position() {
-    let Some(mut harness) = opened() else { return };
+fn seek_reports_done_and_moves_the_position(mode: Mode) {
+    let Some(mut harness) = opened(mode) else {
+        return;
+    };
     harness
         .player
         .set_playback(Playback::Paused)
@@ -143,9 +145,10 @@ fn seek_reports_done_and_moves_the_position() {
     });
 }
 
-#[test]
-fn set_chapter_seeks_and_rejects_a_missing_index() {
-    let Some(mut harness) = opened() else { return };
+fn set_chapter_seeks_and_rejects_a_missing_index(mode: Mode) {
+    let Some(mut harness) = opened(mode) else {
+        return;
+    };
     harness
         .player
         .set_playback(Playback::Paused)
@@ -167,9 +170,10 @@ fn set_chapter_seeks_and_rejects_a_missing_index() {
     assert!(matches!(err, Error::NoSuchChapter(2)), "{err:?}");
 }
 
-#[test]
-fn frame_step_advances_and_retreats_by_one_frame() {
-    let Some(mut harness) = opened() else { return };
+fn frame_step_advances_and_retreats_by_one_frame(mode: Mode) {
+    let Some(mut harness) = opened(mode) else {
+        return;
+    };
     harness
         .player
         .set_playback(Playback::Paused)
@@ -216,9 +220,8 @@ fn png_size(path: &std::path::Path) -> (u32, u32) {
     (width, height)
 }
 
-#[test]
-fn screenshot_video_and_subtitles_are_source_size_and_window_is_slot_size() {
-    let Some(mut harness) = Harness::open().map(|h| h.with_slot_of(160, 120)) else {
+fn screenshot_video_and_subtitles_are_source_size_and_window_is_slot_size(mode: Mode) {
+    let Some(mut harness) = Harness::open(mode).map(|h| h.with_slot_of(160, 120)) else {
         return;
     };
     harness.load("clip.mkv");
@@ -245,3 +248,14 @@ fn screenshot_video_and_subtitles_are_source_size_and_window_is_slot_size() {
     }
     std::fs::remove_dir_all(dir).expect("cleanup");
 }
+
+in_each_mode!(
+    clip_lists_its_tracks_and_chapters,
+    select_track_switches_audio_and_turns_subtitles_off,
+    volume_is_absolute_clamped_and_announced,
+    speed_round_trips,
+    seek_reports_done_and_moves_the_position,
+    set_chapter_seeks_and_rejects_a_missing_index,
+    frame_step_advances_and_retreats_by_one_frame,
+    screenshot_video_and_subtitles_are_source_size_and_window_is_slot_size,
+);
