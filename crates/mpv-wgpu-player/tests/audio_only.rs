@@ -1,15 +1,15 @@
 //! Audio-only files: no errors, no picture, and cover art shown as video.
 
+#[macro_use]
 mod support;
 
 use std::time::Duration;
 
 use mpv_wgpu_player::{EndReason, Event, Picture, Playback, TrackArt, TrackKind, VideoPresence};
-use support::Harness;
+use support::{Harness, Mode};
 
-#[test]
-fn plain_audio_loads_without_a_picture_or_an_error() {
-    let Some(mut harness) = Harness::open().map(Harness::with_slot) else {
+fn plain_audio_loads_without_a_picture_or_an_error(mode: Mode) {
+    let Some(mut harness) = Harness::open(mode).map(Harness::with_slot) else {
         return;
     };
     harness.load("tone.flac");
@@ -29,9 +29,8 @@ fn plain_audio_loads_without_a_picture_or_an_error() {
     assert!(harness.player.duration().is_some_and(|d| d.get() > 1.5));
 }
 
-#[test]
-fn plain_audio_plays_to_the_end_without_an_error() {
-    let Some(mut harness) = Harness::open().map(Harness::with_slot) else {
+fn plain_audio_plays_to_the_end_without_an_error(mode: Mode) {
+    let Some(mut harness) = Harness::open(mode).map(Harness::with_slot) else {
         return;
     };
     harness.load("tone.flac");
@@ -49,9 +48,8 @@ fn plain_audio_plays_to_the_end_without_an_error() {
     assert!(position > 1.5, "played to {position}");
 }
 
-#[test]
-fn embedded_cover_art_is_shown_as_the_picture() {
-    let Some(mut harness) = Harness::open().map(Harness::with_slot) else {
+fn embedded_cover_art_is_shown_as_the_picture(mode: Mode) {
+    let Some(mut harness) = Harness::open(mode).map(Harness::with_slot) else {
         return;
     };
     harness.load("cover.mp3");
@@ -66,9 +64,8 @@ fn embedded_cover_art_is_shown_as_the_picture() {
     assert!(!harness.saw(&Event::Ended(EndReason::Error)));
 }
 
-#[test]
-fn cover_art_survives_pause_and_a_new_slot_is_painted() {
-    let Some(mut harness) = Harness::open().map(Harness::with_slot) else {
+fn cover_art_survives_pause_and_a_new_slot_is_painted(mode: Mode) {
+    let Some(mut harness) = Harness::open(mode).map(Harness::with_slot) else {
         return;
     };
     harness.load("cover.mp3");
@@ -82,3 +79,10 @@ fn cover_art_survives_pause_and_a_new_slot_is_painted() {
     harness.run_for(Duration::from_millis(200));
     assert!(matches!(harness.player.picture(), Picture::Shown(_)));
 }
+
+in_each_mode!(
+    plain_audio_loads_without_a_picture_or_an_error,
+    plain_audio_plays_to_the_end_without_an_error,
+    embedded_cover_art_is_shown_as_the_picture,
+    cover_art_survives_pause_and_a_new_slot_is_painted,
+);

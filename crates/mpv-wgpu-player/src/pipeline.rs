@@ -2,7 +2,6 @@
 
 use mpv_wgpu::Grade;
 
-use crate::frame_buffer::FrameBuffer;
 use crate::types::{Error, SlotSize};
 
 #[repr(C, align(16))]
@@ -203,11 +202,22 @@ impl Gpu {
         &self.output_view
     }
 
-    pub fn upload_bytes(&self, queue: &wgpu::Queue, frame: &FrameBuffer) -> Result<(), Error> {
-        let stride = frame.stride();
-        let height = frame.height();
-        let width = frame.width();
+    /// Copy `bytes`, `height` rows of `stride` bytes, into the texture the next draw reads.
+    pub fn upload(
+        &self,
+        queue: &wgpu::Queue,
+        bytes: &[u8],
+        stride: usize,
+        width: u32,
+        height: u32,
+    ) -> Result<(), Error> {
         if width != self.size.width.get() || height != self.size.height.get() {
+            return Err(Error::InvalidSize);
+        }
+        let needed = stride
+            .checked_mul(height as usize)
+            .ok_or(Error::InvalidSize)?;
+        if bytes.len() < needed || stride < width as usize * 4 {
             return Err(Error::InvalidSize);
         }
         let texture = &self.uploads[self.upload.index()].texture;
@@ -218,7 +228,7 @@ impl Gpu {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            frame_bytes(frame),
+            bytes,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(u32::try_from(stride).map_err(|_| Error::InvalidSize)?),
@@ -276,12 +286,6 @@ impl Gpu {
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
-}
-
-fn frame_bytes(frame: &FrameBuffer) -> &[u8] {
-    // pixels_mut is the only accessor; duplicate a shared view via the public length.
-    // FrameBuffer exposes pixels_mut only. Add pixels() — I'll call a crate method.
-    frame.pixels()
 }
 
 fn plane(
