@@ -20,7 +20,7 @@ jobs:
         run: cargo fmt --all --check
       - name: Test (in-process, the default)
         run: cargo test --workspace --locked
-      - name: Test (both modes: libmpv and the spawned mpv)
+      - name: "Test (both modes: libmpv and the spawned mpv)"
         run: cargo test -p mpv-wgpu-player --features subprocess --locked
       - name: Test (subprocess only, no libmpv)
         run: cargo test -p mpv-wgpu-player --no-default-features --features subprocess --locked
