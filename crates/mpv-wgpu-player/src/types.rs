@@ -25,6 +25,7 @@ pub struct SlotSize {
 
 impl SlotSize {
     /// Byte length of one tightly described row before stride padding, times height.
+    #[cfg(feature = "in-process")]
     pub(crate) fn byte_len(self, stride: usize) -> Result<usize, Error> {
         stride
             .checked_mul(self.height.get() as usize)
@@ -245,6 +246,21 @@ pub enum Error {
     /// The chapter index is past the last chapter of the file.
     #[error("no chapter at index {0}")]
     NoSuchChapter(u32),
+    /// The mpv child process exited or crashed, or its plugin closed the socket.
+    ///
+    /// Subprocess mode only. Every later call fails the same way; make a new
+    /// [`crate::Player`] to play again.
+    #[error("the mpv process is gone")]
+    HostGone,
+    /// The mpv child process did not answer in time. It may be hung.
+    ///
+    /// Subprocess mode only.
+    #[error("the mpv process did not answer")]
+    HostTimeout,
+    /// The mpv core could not be started: mpv or its plugin was not found, the
+    /// versions do not match, or this host mode was compiled out.
+    #[error("cannot start mpv: {0}")]
+    HostStart(String),
 }
 
 /// Integer code from libmpv.
@@ -262,6 +278,7 @@ impl fmt::Display for MpvError {
 
 impl std::error::Error for MpvError {}
 
+#[cfg(feature = "in-process")]
 pub(crate) fn map_mpv(err: rsmpv::Error) -> Error {
     Error::Mpv(MpvError {
         code: err.raw_code().unwrap_or(-1),

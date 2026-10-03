@@ -1,6 +1,6 @@
 //! Chapter marks, read from mpv's `chapter-list`.
 
-use rsmpv::Node;
+use crate::value::Node;
 
 use crate::nodes::{seconds, text};
 use crate::types::Finite;

@@ -17,12 +17,14 @@ This repository splits those jobs into two crates. Neither one opens a window or
 | mpv | this repo |
 | --- | --- |
 | The picture chain in `vo=gpu` / `vo=gpu-next`: csp, chroma location, EOTF, scale, tone map, video-eq, dither, bitmap overlay | [`mpv-wgpu`](crates/mpv-wgpu). Static WGSL on the caller's device. The caller passes Y, U, V or RGBA. No libplacebo, no `ra` backend, no generated shader. |
-| `vo=libmpv` plus the window mpv would have opened | [`mpv-wgpu-player`](crates/mpv-wgpu-player). The mpv core is unchanged: lavf, lavc, AO, libass, properties, commands, events. The render context is `MPV_RENDER_API_TYPE_SW`. The `rgb0` image is uploaded 1:1 into a host texture. |
+| `vo=libmpv` plus the window mpv would have opened | [`mpv-wgpu-player`](crates/mpv-wgpu-player). The mpv core is unchanged: lavf, lavc, AO, libass, properties, commands, events. The render context is `MPV_RENDER_API_TYPE_SW`. The `rgb0` image is uploaded 1:1 into a host texture. mpv runs as libmpv in your process, or as the user's own `mpv` in a child process. |
 
 ```toml
 mpv-wgpu = "0.1"          # planes, in place of gpu / gpu-next
-mpv-wgpu-player = "0.1"   # libmpv, with the VO window removed
+mpv-wgpu-player = "0.1"   # mpv, with the VO window removed: libmpv linked in, or the user's mpv as a child
 ```
+
+Two supporting crates make the child-process mode work, and you do not use them directly: [`mpv-wgpu-cplugin`](crates/mpv-wgpu-cplugin) is the plugin loaded into mpv, and [`mpv-wgpu-protocol`](crates/mpv-wgpu-protocol) is the wire format both sides share. Both are MIT/Apache and link no mpv code.
 
 The player crate depends on `mpv-wgpu` for `Equalizer`. It does not run libmpv's `rgb0` frame through `Renderer`. That frame has already been through mpv's software VO: dst rect, panscan, rotation, and `osd_draw_on_image`.
 
@@ -111,7 +113,14 @@ The pixel contract is in the [picture crate README](crates/mpv-wgpu/README.md). 
 
 ## What the player crate replaces
 
-`Player` is a libmpv client with `vo=libmpv` and a software render context created before `loadfile`. Demux, decode, audio, subtitle rendering, and the playloop stay inside mpv. What mpv's window, OSC, and `vo_gpu_next` flip used to do is now the host's pass over `Picture::Shown`.
+`Player` is an mpv client with `vo=libmpv` and a software render context created before `loadfile`. The mpv core runs in one of two places, chosen at construction with `Player::with_host`:
+
+- **In process** (cargo feature `in-process`, the default): libmpv linked into your binary.
+- **Subprocess** (feature `subprocess`): the user's own `mpv` executable runs as a child process with a small plugin loaded into it, which renders into a shared-memory frame ring and forwards commands, properties and events over a Unix socket. Nothing from mpv is linked: `cargo tree` shows no `rsmpv` or `libmpv-sys`, and `ldd` of the plugin shows no libmpv.
+
+Distro builds of libmpv and the libav libraries are GPL, so the in-process mode makes an application GPL-encumbered. The subprocess mode lets an application ship as MIT or Apache code and use whatever mpv and FFmpeg the user's distro provides, including the patent-encumbered codecs the distro splits out. The [player crate README](crates/mpv-wgpu-player/README.md) lists the differences between the two modes.
+
+In either mode, demux, decode, audio, subtitle rendering, and the playloop stay inside mpv. Demux, decode, audio, subtitle rendering, and the playloop stay inside mpv. What mpv's window, OSC, and `vo_gpu_next` flip used to do is now the host's pass over `Picture::Shown`.
 
 `set_slot` is the render size, in physical pixels. mpv runs `mp_get_src_dst_rects` into that slot, so letterbox, panscan, zoom, and rotation happen before the upload. `osd_draw_on_image` has already burned libass and OSD into the `rgb0` buffer. The wgpu pass is a 1:1 blit of that buffer into `Rgba8Unorm`. Sample it as non-sRGB. An sRGB swapchain encodes it again.
 
@@ -141,7 +150,7 @@ fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), m
 }
 ```
 
-`pkg-config` must find `mpv`. The rest of the client surface is in the [player crate README](crates/mpv-wgpu-player/README.md).
+With the `in-process` feature `pkg-config` must find `mpv`; with only `subprocess` the build needs no mpv, and the user needs an `mpv` on `PATH`. The rest of the client surface is in the [player crate README](crates/mpv-wgpu-player/README.md).
 
 ## Building
 
@@ -149,11 +158,15 @@ Rust 1.87 or newer. Both crates build against wgpu 29.
 
 ```sh
 cargo test -p mpv-wgpu            # picture crate, no libmpv
-cargo test -p mpv-wgpu-player     # links libmpv
+cargo test -p mpv-wgpu-player     # links libmpv; tests run in-process
 cargo test --workspace --locked
+cargo test -p mpv-wgpu-player --features subprocess            # both hosts; needs `mpv` (or MPV_WGPU_MPV)
+cargo test -p mpv-wgpu-player --no-default-features --features subprocess   # no libmpv anywhere
 ```
 
-CI on Ubuntu installs `libmpv-dev` and a software Vulkan driver, then runs the workspace tests and clippy with `unwrap` denied.
+The subprocess tests print `skipped: no mpv` and pass when there is no `mpv` on `PATH` and `MPV_WGPU_MPV` is unset.
+
+CI on Ubuntu installs `libmpv-dev`, `mpv` and a software Vulkan driver, then runs the tests and clippy with `unwrap` denied for the default features and for `--no-default-features --features subprocess`, and checks that the subprocess build has no `mpv-sys` in its tree and the plugin library no libmpv in `ldd`.
 
 ## License
 

@@ -1,52 +1,25 @@
 //! libmpv core, software frames, and the wgpu picture.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Instant;
-
-use rsmpv::render::{FrameInfo, OwnedRenderContext, SwPixelFormat};
-use rsmpv::{EndFileReason, Event as MpvEvent, Format, Mpv, PropertyData};
+use std::sync::{Arc, Mutex};
 
 use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
 
 use crate::chapters::{Chapter, ChapterIndex};
 use crate::controls::{Direction, ScreenshotContent, VideoPresence};
-use crate::frame_buffer::FrameBuffer;
+use crate::core::{Core, CoreEvent, PropValue, Pulled};
 use crate::media::MediaState;
-use crate::options::PlayerOptions;
+use crate::notify::{Notify, lock};
+use crate::options::{Host, PlayerOptions};
 use crate::pipeline::{Gpu, Pipeline};
 use crate::quantities::{Speed, Volume};
+use crate::stats::Stats;
 use crate::tracks::{TrackChoice, TrackKind, TrackList};
 use crate::types::{
-    Adjust, Deinterlace, EndReason, Error, Event, Finite, Mute, Outcome, Picture, Playback,
-    Presentation, Slot, SlotSize, map_mpv,
+    Adjust, Deinterlace, Error, Event, Finite, Mute, Outcome, Picture, Playback, Presentation,
+    Slot, SlotSize,
 };
-
-const WAKE_IDLE: u8 = 0;
-const WAKE_PENDING: u8 = 1;
-
-struct Notify {
-    wake: AtomicU8,
-    callback: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-}
-
-impl Notify {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            wake: AtomicU8::new(WAKE_IDLE),
-            callback: Mutex::new(None),
-        })
-    }
-
-    fn signal(&self) {
-        self.wake.store(WAKE_PENDING, Ordering::Release);
-        let callback = lock(&self.callback).clone();
-        if let Some(callback) = callback {
-            callback();
-        }
-    }
-}
+use crate::value::PropertyData;
 
 enum Shown {
     Waiting,
@@ -60,13 +33,6 @@ enum Stage {
         gpu: Box<Gpu>,
         shown: Shown,
     },
-}
-
-enum NextFrame {
-    Absent,
-    Repeat,
-    Redraw,
-    New,
 }
 
 enum TransferNote {
@@ -100,27 +66,20 @@ struct Shared {
     slot_repaint: Freshness,
 }
 
-struct Stats {
-    frames: u64,
-    repeats: u64,
-    bytes: u64,
-    software: std::time::Duration,
-    upload: std::time::Duration,
-    window: Instant,
-}
-
-/// One libmpv player and the texture a host samples.
+/// One mpv player and the texture a host samples.
+///
+/// The mpv core runs in this process through libmpv, or in a child `mpv`
+/// process; see [`Host`]. Everything below behaves the same either way unless a
+/// method says otherwise.
 ///
 /// `Player` is [`Send`] and not [`Sync`]. Call [`Player::poll`] on the thread
 /// that presents. The notify closure may run on an mpv thread and must only
 /// wake the host.
 pub struct Player {
-    core: Arc<Mpv>,
-    render: OwnedRenderContext,
+    core: Box<dyn Core>,
     notify: Arc<Notify>,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    frames: FrameBuffer,
     pipeline: Pipeline,
     stage: Stage,
     shared: Mutex<Shared>,
@@ -129,7 +88,7 @@ pub struct Player {
 }
 
 impl Player {
-    /// Start a headless libmpv core on `device` / `queue`.
+    /// Start an mpv core on `device` / `queue`, in the way [`Host::default`] says.
     ///
     /// `options` picks the audio driver; [`PlayerOptions::default`] lets mpv probe.
     ///
@@ -140,27 +99,28 @@ impl Player {
         queue: &wgpu::Queue,
         options: PlayerOptions,
     ) -> Result<Self, Error> {
-        let core = build_core(options)?;
-        if core.set_property("deinterlace", "auto").is_err() {
-            log::info!("this libmpv rejects deinterlace=auto; keeping its default");
-        }
-        let core = Arc::new(core);
-        let mut render = OwnedRenderContext::new_software(Arc::clone(&core)).map_err(map_mpv)?;
+        Self::with_host(device, queue, options, Host::default())
+    }
+
+    /// Like [`Player::new`], choosing where the mpv core runs.
+    ///
+    /// [`Host::InProcess`] needs the `in-process` cargo feature and
+    /// [`Host::Subprocess`] needs the `subprocess` feature; asking for a mode that
+    /// was compiled out fails with [`Error::HostStart`].
+    pub fn with_host(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        options: PlayerOptions,
+        host: Host,
+    ) -> Result<Self, Error> {
         let notify = Notify::new();
-        let signal_target = Arc::clone(&notify);
-        render.set_update_callback(move || signal_target.signal());
-        let wake_target = Arc::clone(&notify);
-        core.set_wakeup_callback(move || wake_target.signal());
-        let _ = core.request_log_messages("warn");
-        observe(&core)?;
+        let core = start_core(options, host, &notify)?;
         let pipeline = Pipeline::new(device)?;
-        Ok(Self {
+        let player = Self {
             core,
-            render,
             notify,
             device: device.clone(),
             queue: queue.clone(),
-            frames: FrameBuffer::new(),
             pipeline,
             stage: Stage::NoSlot,
             shared: Mutex::new(Shared {
@@ -178,15 +138,16 @@ impl Player {
                 slot_repaint: Freshness::Clean,
             }),
             events: Vec::new(),
-            stats: Stats {
-                frames: 0,
-                repeats: 0,
-                bytes: 0,
-                software: std::time::Duration::ZERO,
-                upload: std::time::Duration::ZERO,
-                window: Instant::now(),
-            },
-        })
+            stats: Stats::new(),
+        };
+        if player
+            .core
+            .set("deinterlace", PropValue::Text("auto"))
+            .is_err()
+        {
+            log::info!("this mpv rejects deinterlace=auto; keeping its default");
+        }
+        Ok(player)
     }
 
     /// Replace the wake closure. It may run on an mpv thread, including inside this call.
@@ -194,19 +155,19 @@ impl Player {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        *lock(&self.notify.callback) = Some(Arc::new(notify));
+        self.notify.set(Some(Arc::new(notify)));
     }
 
     /// Drop the wake closure. A pending wake stays pending.
     pub fn clear_notify(&mut self) {
-        *lock(&self.notify.callback) = None;
+        self.notify.set(None);
     }
 
     /// Set the physical rectangle mpv scales and letterboxes into.
     pub fn set_slot(&mut self, slot: Slot) -> Result<(), Error> {
         match slot {
             Slot::Empty => {
-                self.frames.clear_len();
+                self.core.set_slot(None)?;
                 self.stage = Stage::NoSlot;
                 Ok(())
             }
@@ -216,7 +177,7 @@ impl Player {
                     Stage::Live { size: current, .. } if *current == size
                 );
                 if !same {
-                    self.frames.ensure(size)?;
+                    self.core.set_slot(Some(size))?;
                     let gpu = Box::new(Gpu::new(&self.device, &self.pipeline, size)?);
                     self.stage = Stage::Live {
                         size,
@@ -240,14 +201,15 @@ impl Player {
 
     /// Replace the current file. `url` is a path or a URL mpv understands.
     pub fn load(&self, url: &str) -> Result<(), Error> {
-        self.core.command(&["loadfile", url]).map_err(map_mpv)
+        self.core.command(&["loadfile", url])
     }
 
     /// Drain mpv, upload a software frame when there is one, and submit the equalizer pass.
     pub fn poll(&mut self) -> Result<Outcome, Error> {
-        self.notify.wake.store(WAKE_IDLE, Ordering::Release);
+        self.notify.clear_pending();
         self.events.clear();
         self.drain_events();
+        self.core.check()?;
         let presentation = self.present()?;
         self.flush_stats();
         Ok(Outcome { presentation })
@@ -268,7 +230,7 @@ impl Player {
     /// Pause or resume. The getter updates immediately.
     pub fn set_playback(&self, playback: Playback) -> Result<(), Error> {
         let paused = matches!(playback, Playback::Paused);
-        self.core.set_property("pause", paused).map_err(map_mpv)?;
+        self.core.set("pause", PropValue::Flag(paused))?;
         let mut shared = lock(&self.shared);
         if shared.playback != playback {
             shared.playback = playback;
@@ -288,9 +250,7 @@ impl Player {
             crate::types::Seek::Absolute(seconds) => (seconds, "absolute"),
         };
         let text = format_finite(seconds);
-        self.core
-            .command(&["seek", text.as_str(), mode])
-            .map_err(map_mpv)
+        self.core.command(&["seek", text.as_str(), mode])
     }
 
     /// Playback position in seconds, once mpv has reported a finite value.
@@ -317,7 +277,7 @@ impl Player {
             } else {
                 f64::from(value)
             };
-            self.core.set_property(name, numeric).map_err(map_mpv)?;
+            self.core.set(name, PropValue::Double(numeric))?;
         }
         let mut shared = lock(&self.shared);
         shared.equalizer = equalizer;
@@ -338,16 +298,13 @@ impl Player {
             Adjust::Volume(delta) => ("volume", delta),
         };
         let text = format_finite(delta);
-        self.core
-            .command(&["add", name, text.as_str()])
-            .map_err(map_mpv)
+        self.core.command(&["add", name, text.as_str()])
     }
 
     /// Set mpv's deinterlace mode.
     pub fn set_deinterlace(&self, mode: Deinterlace) -> Result<(), Error> {
         self.core
-            .set_property("deinterlace", mode.as_mpv())
-            .map_err(map_mpv)?;
+            .set("deinterlace", PropValue::Text(mode.as_mpv()))?;
         lock(&self.shared).deinterlace = mode;
         Ok(())
     }
@@ -360,7 +317,7 @@ impl Player {
     /// Mute or unmute.
     pub fn set_mute(&self, mute: Mute) -> Result<(), Error> {
         let on = matches!(mute, Mute::On);
-        self.core.set_property("mute", on).map_err(map_mpv)?;
+        self.core.set("mute", PropValue::Flag(on))?;
         lock(&self.shared).mute = mute;
         Ok(())
     }
@@ -382,8 +339,7 @@ impl Player {
     /// The selection shows in [`Player::tracks`] after the next [`Player::poll`].
     pub fn select_track(&self, kind: TrackKind, choice: TrackChoice) -> Result<(), Error> {
         self.core
-            .set_property(kind.option(), choice.as_mpv().as_str())
-            .map_err(map_mpv)
+            .set(kind.option(), PropValue::Text(choice.as_mpv().as_str()))
     }
 
     /// Whether the current file shows a picture, from the selected video track.
@@ -413,45 +369,38 @@ impl Player {
             return Err(Error::NoSuchChapter(index.get()));
         }
         self.core
-            .set_property("chapter", i64::from(index.get()))
-            .map_err(map_mpv)
+            .set("chapter", PropValue::Int(i64::from(index.get())))
     }
 
     /// Set the absolute volume. [`Player::adjust`] with [`Adjust::Volume`] adds a delta.
     pub fn set_volume(&self, volume: Volume) -> Result<(), Error> {
-        self.core
-            .set_property("volume", volume.to_mpv())
-            .map_err(map_mpv)
+        self.core.set("volume", PropValue::Double(volume.to_mpv()))
     }
 
     /// The volume mpv holds right now, read from the core.
     pub fn volume(&self) -> Volume {
         self.core
-            .get_property::<f64>("volume")
-            .ok()
+            .get_double("volume")
             .and_then(Volume::from_mpv)
             .unwrap_or(lock(&self.shared).media.volume)
     }
 
     /// Set the playback speed.
     pub fn set_speed(&self, speed: Speed) -> Result<(), Error> {
-        self.core
-            .set_property("speed", speed.ratio())
-            .map_err(map_mpv)
+        self.core.set("speed", PropValue::Double(speed.ratio()))
     }
 
     /// The playback speed mpv holds right now, read from the core.
     pub fn speed(&self) -> Speed {
         self.core
-            .get_property::<f64>("speed")
-            .ok()
+            .get_double("speed")
             .and_then(Speed::from_mpv)
             .unwrap_or(Speed::NORMAL)
     }
 
     /// Step one frame and pause. Needs a video track.
     pub fn frame_step(&self, direction: Direction) -> Result<(), Error> {
-        self.core.command(&[direction.command()]).map_err(map_mpv)
+        self.core.command(&[direction.command()])
     }
 
     /// Write the current frame to `path`; the extension picks the image format.
@@ -462,12 +411,11 @@ impl Player {
         let path = path.to_str().ok_or(Error::PathNotUtf8)?;
         self.core
             .command(&["screenshot-to-file", path, content.as_mpv()])
-            .map_err(map_mpv)
     }
 
     /// Escape hatch to `mpv_command`. The slice is forwarded unchanged.
     pub fn command(&self, args: &[&str]) -> Result<(), Error> {
-        self.core.command(args).map_err(map_mpv)
+        self.core.command(args)
     }
 
     /// Events collected by the most recent [`Player::poll`].
@@ -476,34 +424,22 @@ impl Player {
     }
 
     fn drain_events(&mut self) {
-        while let Some(event) = self.core.poll_event() {
+        while let Some(event) = self.core.next_event() {
             self.ingest(event);
         }
     }
 
-    fn ingest(&mut self, event: MpvEvent) {
+    fn ingest(&mut self, event: CoreEvent) {
         match event {
-            MpvEvent::FileLoaded => {
-                match self.core.get_property::<String>("current-ao") {
-                    Ok(ao) => log::info!("current-ao={ao}"),
-                    Err(err) => log::info!("current-ao-error={}", err.raw_code().unwrap_or(-1)),
-                }
-                if let Ok(ao) = self.core.get_property::<String>("ao") {
-                    log::info!("ao={ao}");
-                }
-                if let Ok(codec) = self.core.get_property::<String>("audio-codec-name") {
-                    log::info!("audio-codec={codec}");
-                }
+            CoreEvent::FileLoaded => {
+                self.core.on_file_loaded();
                 self.events.push(Event::Loaded);
             }
-            MpvEvent::EndFile { reason, .. } => {
-                self.events.push(Event::Ended(end_reason(reason)));
+            CoreEvent::Ended(reason) => self.events.push(Event::Ended(reason)),
+            CoreEvent::Property(name, data) => self.ingest_property(&name, data),
+            CoreEvent::Log { prefix, text } => {
+                log::warn!("mpv {}: {}", prefix, text.trim_end());
             }
-            MpvEvent::PropertyChange { name, data, .. } => self.ingest_property(&name, data),
-            MpvEvent::LogMessage(message) => {
-                log::warn!("mpv {}: {}", message.prefix, message.text.trim_end());
-            }
-            _ => {}
         }
     }
 
@@ -606,19 +542,12 @@ impl Player {
     }
 
     fn present(&mut self) -> Result<Presentation, Error> {
-        let Stage::Live { .. } = &self.stage else {
+        if !matches!(&self.stage, Stage::Live { .. }) {
             return Ok(Presentation::Unchanged);
-        };
+        }
         if self.has_video() == VideoPresence::Absent {
             return Ok(self.withdraw_picture());
         }
-        let frame_flag = self.render.update();
-        let info = if frame_flag {
-            self.render.next_frame_info().map_err(map_mpv)?
-        } else {
-            FrameInfo::default()
-        };
-        let next = next_frame(frame_flag, info);
         let (grade_dirty, slot_dirty, coefficients, equalizer) = {
             let shared = lock(&self.shared);
             (
@@ -628,18 +557,23 @@ impl Player {
                 shared.equalizer,
             )
         };
-
-        let software = matches!(next, NextFrame::Redraw | NextFrame::New) || slot_dirty;
-        let report = matches!(next, NextFrame::Repeat | NextFrame::Redraw | NextFrame::New);
-        if matches!(next, NextFrame::Repeat) && !software && !grade_dirty {
-            self.render.report_swap();
-            self.stats.repeats = self.stats.repeats.saturating_add(1);
+        let Stage::Live { gpu, .. } = &self.stage else {
             return Ok(Presentation::Unchanged);
+        };
+        let pulled = self
+            .core
+            .pull(slot_dirty, gpu, &self.queue, &mut self.stats)?;
+        match pulled {
+            Pulled::Repeat if !grade_dirty => {
+                self.core.finish(true);
+                self.stats.repeats = self.stats.repeats.saturating_add(1);
+                Ok(Presentation::Unchanged)
+            }
+            Pulled::Nothing if !grade_dirty => Ok(Presentation::Unchanged),
+            Pulled::Nothing => self.paint(false, coefficients, equalizer, false),
+            Pulled::Repeat => self.paint(false, coefficients, equalizer, true),
+            Pulled::Frame { swap } => self.paint(true, coefficients, equalizer, swap),
         }
-        if !software && !grade_dirty {
-            return Ok(Presentation::Unchanged);
-        }
-        self.paint(software, coefficients, equalizer, report)
     }
 
     /// Audio-only or no file: there is nothing to sample, so the picture goes
@@ -654,45 +588,17 @@ impl Player {
         }
     }
 
+    /// Draw the equalizer pass. `uploaded` says a new frame was just written
+    /// into the upload texture; `swap` is whether mpv is told afterwards.
     fn paint(
         &mut self,
-        software: bool,
+        uploaded: bool,
         coefficients: Coefficients,
         equalizer: Equalizer,
-        report: bool,
+        swap: bool,
     ) -> Result<Presentation, Error> {
-        let size = match &self.stage {
-            Stage::Live { size, .. } => *size,
-            Stage::NoSlot => return Ok(Presentation::Unchanged),
-        };
-        if software {
-            self.frames.ensure(size)?;
-            let width = i32::try_from(size.width.get()).map_err(|_| Error::InvalidSize)?;
-            let height = i32::try_from(size.height.get()).map_err(|_| Error::InvalidSize)?;
-            let started = Instant::now();
-            self.render
-                .render_software(
-                    width,
-                    height,
-                    SwPixelFormat::Rgb0,
-                    self.frames.stride(),
-                    self.frames.pixels_mut(),
-                )
-                .map_err(map_mpv)?;
-            self.stats.software += started.elapsed();
-            let started = Instant::now();
-            if let Stage::Live { gpu, .. } = &self.stage {
-                gpu.upload_bytes(&self.queue, &self.frames)?;
-            }
-            self.stats.upload += started.elapsed();
-            self.stats.bytes = self
-                .stats
-                .bytes
-                .saturating_add(self.frames.pixels().len() as u64);
-            self.stats.frames = self.stats.frames.saturating_add(1);
-        }
         let grade = bake(equalizer, coefficients);
-        if software && let Stage::Live { gpu, .. } = &mut self.stage {
+        if uploaded && let Stage::Live { gpu, .. } = &mut self.stage {
             let written = gpu.upload;
             gpu.rebind(&self.device, &self.pipeline, written);
             gpu.upload = written.flip();
@@ -704,9 +610,7 @@ impl Player {
         if let Stage::Live { shown, .. } = &mut self.stage {
             *shown = Shown::Current;
         }
-        if report {
-            self.render.report_swap();
-        }
+        self.core.finish(swap);
         let mut shared = lock(&self.shared);
         shared.grade = Freshness::Clean;
         shared.slot_repaint = Freshness::Clean;
@@ -717,117 +621,42 @@ impl Player {
         if self.stats.window.elapsed() < std::time::Duration::from_secs(1) {
             return;
         }
-        let ao = self
-            .core
-            .get_property::<String>("current-ao")
-            .unwrap_or_else(|_| "unavailable".to_string());
         log::info!(
-            "frames={} repeats={} bytes={} software_us={} upload_us={} current-ao={ao}",
+            "frames={} repeats={} bytes={} software_us={} upload_us={} {}",
             self.stats.frames,
             self.stats.repeats,
             self.stats.bytes,
             self.stats.software.as_micros(),
-            self.stats.upload.as_micros()
+            self.stats.upload.as_micros(),
+            self.core.stats_note()
         );
-        self.stats.frames = 0;
-        self.stats.repeats = 0;
-        self.stats.bytes = 0;
-        self.stats.software = std::time::Duration::ZERO;
-        self.stats.upload = std::time::Duration::ZERO;
-        self.stats.window = Instant::now();
+        self.stats.reset();
     }
 }
 
-fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
-    let mut builder = Mpv::builder().map_err(map_mpv)?;
-    let mut settings: Vec<(&str, &str)> = vec![
-        ("vo", "libmpv"),
-        ("hwdec", "auto-safe"),
-        ("vid", "auto"),
-        ("idle", "yes"),
-        ("keep-open", "yes"),
-        ("video-sync", "audio"),
-        ("sub-visibility", "yes"),
-        ("volume-max", "150"),
-        ("audio-display", "embedded-first"),
-        ("osc", "no"),
-        ("input-default-bindings", "no"),
-        ("input-vo-keyboard", "no"),
-    ];
-    if let Some(driver) = options.audio_output.as_mpv() {
-        settings.push(("ao", driver));
+fn start_core(
+    options: PlayerOptions,
+    host: Host,
+    notify: &Arc<Notify>,
+) -> Result<Box<dyn Core>, Error> {
+    match host {
+        #[cfg(feature = "in-process")]
+        Host::InProcess => Ok(Box::new(crate::core::in_process::InProcess::new(
+            options, notify,
+        )?)),
+        #[cfg(feature = "subprocess")]
+        Host::Subprocess(host) => Ok(Box::new(crate::core::subprocess::Subprocess::start(
+            options, &host, notify,
+        )?)),
+        #[allow(unreachable_patterns)]
+        _ => {
+            let _ = (options, notify);
+            Err(Error::HostStart(
+                "this host mode was compiled out; enable the `in-process` or `subprocess` feature"
+                    .to_string(),
+            ))
+        }
     }
-    for (name, value) in settings {
-        builder = builder.set_property(name, value).map_err(map_mpv)?;
-    }
-    builder
-        .set_property("video-timing-offset", 0.0_f64)
-        .map_err(map_mpv)?
-        .build()
-        .map_err(map_mpv)
-}
-
-fn next_frame(ready: bool, info: FrameInfo) -> NextFrame {
-    if !ready || !info.present {
-        NextFrame::Absent
-    } else if info.repeat {
-        NextFrame::Repeat
-    } else if info.redraw {
-        NextFrame::Redraw
-    } else {
-        NextFrame::New
-    }
-}
-
-fn end_reason(reason: EndFileReason) -> EndReason {
-    match reason {
-        EndFileReason::Eof => EndReason::Eof,
-        EndFileReason::Stop => EndReason::Stop,
-        EndFileReason::Quit => EndReason::Quit,
-        EndFileReason::Redirect => EndReason::Redirect,
-        EndFileReason::Error => EndReason::Error,
-        _ => EndReason::Error,
-    }
-}
-
-fn observe(core: &Mpv) -> Result<(), Error> {
-    let flags = [("pause", Format::Flag), ("mute", Format::Flag)];
-    for (name, format) in flags {
-        core.observe_property(1, name, format).map_err(map_mpv)?;
-    }
-    for name in [
-        "time-pos",
-        "duration",
-        "brightness",
-        "contrast",
-        "saturation",
-        "gamma",
-        "hue",
-        "volume",
-    ] {
-        core.observe_property(1, name, Format::Double)
-            .map_err(map_mpv)?;
-    }
-    core.observe_property(1, "seeking", Format::Flag)
-        .map_err(map_mpv)?;
-    for name in ["chapter", "cache-buffering-state"] {
-        core.observe_property(1, name, Format::Int64)
-            .map_err(map_mpv)?;
-    }
-    for name in ["track-list", "chapter-list"] {
-        core.observe_property(1, name, Format::Node)
-            .map_err(map_mpv)?;
-    }
-    for name in [
-        "deinterlace",
-        "hwdec-current",
-        "video-params/colormatrix",
-        "video-params/gamma",
-    ] {
-        core.observe_property(1, name, Format::String)
-            .map_err(map_mpv)?;
-    }
-    Ok(())
 }
 
 fn finite_data(data: &PropertyData) -> Option<Finite> {
@@ -890,10 +719,6 @@ fn format_finite(value: Finite) -> String {
 /// Format a finite float without pulling an extra crate. Not used on the frame path.
 fn ryu_like(value: f64) -> String {
     format!("{value}")
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 #[cfg(test)]

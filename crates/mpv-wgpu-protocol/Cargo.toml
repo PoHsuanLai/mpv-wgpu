@@ -1,0 +1,14 @@
+[package]
+name = "mpv-wgpu-protocol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+description = "Wire protocol between mpv-wgpu-player and its mpv plugin: messages, socket transport, memfd frame ring"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/PoHsuanLai/mpv-wgpu"
+readme = "README.md"
+keywords = ["mpv", "ipc", "shared-memory", "video"]
+categories = ["multimedia::video", "os::linux-apis"]
+
+[dependencies]
+rustix = { version = "1", features = ["net", "fs", "mm", "event", "process", "rand", "time"] }

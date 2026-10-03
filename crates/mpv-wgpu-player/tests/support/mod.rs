@@ -3,11 +3,69 @@
 
 use std::num::NonZeroU32;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use mpv_wgpu_player::{AudioOutput, Event, Player, PlayerOptions, Slot, SlotSize};
+use mpv_wgpu_player::{
+    AudioOutput, Event, Host, Player, PlayerOptions, Slot, SlotSize, SubprocessOptions,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Where the player's mpv core runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// libmpv linked into the test process.
+    InProcess,
+    /// The stock `mpv` binary with the plugin loaded.
+    Subprocess,
+}
+
+/// Run the test function `$name(Mode)` once per compiled-in mode, as `$name::in_process`
+/// and `$name::subprocess`.
+macro_rules! in_each_mode {
+    ($($name:ident),+ $(,)?) => {
+        $(
+            mod $name {
+                #[cfg(feature = "in-process")]
+                #[test]
+                fn in_process() {
+                    super::$name($crate::support::Mode::InProcess);
+                }
+
+                #[cfg(feature = "subprocess")]
+                #[test]
+                fn subprocess() {
+                    super::$name($crate::support::Mode::Subprocess);
+                }
+            }
+        )+
+    };
+}
+
+/// The `mpv` the subprocess tests run: `MPV_WGPU_MPV`, else `mpv` on `PATH`.
+pub fn find_mpv() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("MPV_WGPU_MPV").filter(|p| !p.is_empty()) {
+        let path = PathBuf::from(path);
+        return path.is_file().then_some(path);
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join("mpv"))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Subprocess options for the tests, or `None` (after saying so) when there is no mpv.
+pub fn subprocess_host() -> Option<Host> {
+    let Some(mpv) = find_mpv() else {
+        eprintln!("skipped: no mpv (set MPV_WGPU_MPV or put mpv on PATH)");
+        return None;
+    };
+    Some(Host::Subprocess(SubprocessOptions {
+        mpv: Some(mpv),
+        ..SubprocessOptions::default()
+    }))
+}
 
 /// A player plus every event it has produced since the harness was built.
 pub struct Harness {
@@ -30,7 +88,14 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn open_device() -> Result<(wgpu::Device, wgpu::Queue), String> {
+/// One wgpu device for the whole test process. The Vulkan loader is not safe to
+/// start from several threads at once, and the tests run in parallel.
+pub fn open_device() -> Result<(wgpu::Device, wgpu::Queue), String> {
+    static GPU: OnceLock<Result<(wgpu::Device, wgpu::Queue), String>> = OnceLock::new();
+    GPU.get_or_init(create_device).clone()
+}
+
+fn create_device() -> Result<(wgpu::Device, wgpu::Queue), String> {
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let mut errors = Vec::new();
@@ -63,11 +128,16 @@ fn open_device() -> Result<(wgpu::Device, wgpu::Queue), String> {
 }
 
 impl Harness {
-    /// A player on the null audio output, or `None` when no wgpu adapter exists.
+    /// A player on the null audio output, or `None` when no wgpu adapter exists
+    /// (or, in subprocess mode, no mpv).
     ///
     /// The tests return early on `None`, so a machine without any adapter
     /// (no Vulkan or GL driver) passes without exercising them.
-    pub fn open() -> Option<Self> {
+    pub fn open(mode: Mode) -> Option<Self> {
+        let host = match mode {
+            Mode::InProcess => Host::InProcess,
+            Mode::Subprocess => subprocess_host()?,
+        };
         let (device, queue) = match open_device() {
             Ok(gpu) => gpu,
             Err(err) => {
@@ -75,12 +145,13 @@ impl Harness {
                 return None;
             }
         };
-        let player = Player::new(
+        let player = Player::with_host(
             &device,
             &queue,
             PlayerOptions {
                 audio_output: AudioOutput::Null,
             },
+            host,
         )
         .expect("player");
         Some(Self {

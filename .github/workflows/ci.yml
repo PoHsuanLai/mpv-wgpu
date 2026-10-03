@@ -14,11 +14,22 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Install libmpv and a software Vulkan driver
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libmpv-dev libvulkan1 mesa-vulkan-drivers
+      - name: Install mpv, libmpv and a software Vulkan driver
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libmpv-dev mpv libvulkan1 mesa-vulkan-drivers
       - name: Format
         run: cargo fmt --all --check
-      - name: Test
+      - name: Test (in-process, the default)
         run: cargo test --workspace --locked
-      - name: Clippy
+      - name: "Test (both modes: libmpv and the spawned mpv)"
+        run: cargo test -p mpv-wgpu-player --features subprocess --locked
+      - name: Test (subprocess only, no libmpv)
+        run: cargo test -p mpv-wgpu-player --no-default-features --features subprocess --locked
+      - name: Clippy (default)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings -D clippy::unwrap_used
+      - name: Clippy (subprocess only)
+        run: cargo clippy -p mpv-wgpu-player --no-default-features --features subprocess --all-targets --locked -- -D warnings -D clippy::unwrap_used
+      - name: Subprocess mode links no libmpv
+        run: |
+          if cargo tree -p mpv-wgpu-player --no-default-features --features subprocess | grep -i mpv-sys; then exit 1; fi
+          cargo build -p mpv-wgpu-cplugin --locked
+          if ldd target/debug/libmpv_wgpu_cplugin.so | grep -i mpv; then exit 1; fi

@@ -3,7 +3,7 @@
 use std::fmt;
 use std::num::NonZeroU32;
 
-use rsmpv::Node;
+use crate::value::Node;
 
 use crate::nodes::{field, flag, int, text};
 
