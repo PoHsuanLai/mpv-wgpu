@@ -1,7 +1,8 @@
 //! libmpv core, software frames, and the wgpu picture.
 
+use std::cell::RefCell;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use mpv_wgpu::{Coefficients, Equalizer, Hue, UnitBias, bake};
 
@@ -9,7 +10,7 @@ use crate::chapters::{Chapter, ChapterIndex};
 use crate::controls::{Direction, ScreenshotContent, VideoPresence};
 use crate::core::{Core, CoreEvent, PropValue, Pulled};
 use crate::media::MediaState;
-use crate::notify::{Notify, lock};
+use crate::notify::Notify;
 use crate::options::{Host, PlayerOptions};
 use crate::pipeline::{Gpu, Pipeline};
 use crate::quantities::{Speed, Volume};
@@ -77,7 +78,7 @@ pub struct Player {
     queue: wgpu::Queue,
     pipeline: Pipeline,
     stage: Stage,
-    shared: Mutex<Shared>,
+    shared: RefCell<Shared>,
     events: Vec<Event>,
     stats: Stats,
 }
@@ -118,7 +119,7 @@ impl Player {
             queue: queue.clone(),
             pipeline,
             stage: Stage::NoSlot,
-            shared: Mutex::new(Shared {
+            shared: RefCell::new(Shared {
                 playback: Playback::Playing,
                 mute: Mute::Off,
                 deinterlace: Deinterlace::Auto,
@@ -180,7 +181,7 @@ impl Player {
                         shown: Shown::Waiting,
                     };
                 }
-                lock(&self.shared).slot_repaint = Freshness::Dirty;
+                self.shared.borrow_mut().slot_repaint = Freshness::Dirty;
                 Ok(())
             }
         }
@@ -226,7 +227,7 @@ impl Player {
     pub fn set_playback(&self, playback: Playback) -> Result<(), Error> {
         let paused = matches!(playback, Playback::Paused);
         self.core.set("pause", PropValue::Flag(paused))?;
-        let mut shared = lock(&self.shared);
+        let mut shared = self.shared.borrow_mut();
         if shared.playback != playback {
             shared.playback = playback;
         }
@@ -235,7 +236,7 @@ impl Player {
 
     /// Last playback state. Default is [`Playback::Playing`].
     pub fn playback(&self) -> Playback {
-        lock(&self.shared).playback
+        self.shared.borrow_mut().playback
     }
 
     /// Seek by a finite amount. Non-finite values cannot be built as [`Finite`].
@@ -250,12 +251,12 @@ impl Player {
 
     /// Playback position in seconds, once mpv has reported a finite value.
     pub fn position(&self) -> Option<Finite> {
-        lock(&self.shared).position
+        self.shared.borrow_mut().position
     }
 
     /// File duration in seconds, once mpv has reported a finite value.
     pub fn duration(&self) -> Option<Finite> {
-        lock(&self.shared).duration
+        self.shared.borrow_mut().duration
     }
 
     /// Store the equalizer and send it to mpv. The next [`Player::poll`] rebakes the pass.
@@ -274,7 +275,7 @@ impl Player {
             };
             self.core.set(name, PropValue::Double(numeric))?;
         }
-        let mut shared = lock(&self.shared);
+        let mut shared = self.shared.borrow_mut();
         shared.equalizer = equalizer;
         shared.grade = Freshness::Dirty;
         Ok(())
@@ -282,7 +283,7 @@ impl Player {
 
     /// Last equalizer. Default is all zeros.
     pub fn equalizer(&self) -> Equalizer {
-        lock(&self.shared).equalizer
+        self.shared.borrow_mut().equalizer
     }
 
     /// Add a delta to panscan, zoom, or volume.
@@ -300,33 +301,33 @@ impl Player {
     pub fn set_deinterlace(&self, mode: Deinterlace) -> Result<(), Error> {
         self.core
             .set("deinterlace", PropValue::Text(mode.as_mpv()))?;
-        lock(&self.shared).deinterlace = mode;
+        self.shared.borrow_mut().deinterlace = mode;
         Ok(())
     }
 
     /// Last deinterlace mode. Default is [`Deinterlace::Auto`].
     pub fn deinterlace(&self) -> Deinterlace {
-        lock(&self.shared).deinterlace
+        self.shared.borrow_mut().deinterlace
     }
 
     /// Mute or unmute.
     pub fn set_mute(&self, mute: Mute) -> Result<(), Error> {
         let on = matches!(mute, Mute::On);
         self.core.set("mute", PropValue::Flag(on))?;
-        lock(&self.shared).mute = mute;
+        self.shared.borrow_mut().mute = mute;
         Ok(())
     }
 
     /// Last mute state. Default is [`Mute::Off`].
     pub fn mute(&self) -> Mute {
-        lock(&self.shared).mute
+        self.shared.borrow_mut().mute
     }
 
     /// Every track of the current file. Empty until mpv has read the file.
     ///
     /// Changes arrive as [`Event::TracksChanged`].
     pub fn tracks(&self) -> TrackList {
-        lock(&self.shared).media.tracks.clone()
+        self.shared.borrow_mut().media.tracks.clone()
     }
 
     /// Choose the track of `kind` mpv plays, or turn the kind off.
@@ -341,26 +342,26 @@ impl Player {
     ///
     /// A cover image attached to an audio file is [`VideoPresence::CoverArt`].
     pub fn has_video(&self) -> VideoPresence {
-        VideoPresence::of(&lock(&self.shared).media.tracks)
+        VideoPresence::of(&self.shared.borrow_mut().media.tracks)
     }
 
     /// The chapters of the current file, in order. Empty without chapters.
     ///
     /// Changes arrive as [`Event::ChaptersChanged`].
     pub fn chapters(&self) -> Vec<Chapter> {
-        lock(&self.shared).media.chapters.clone()
+        self.shared.borrow_mut().media.chapters.clone()
     }
 
     /// The chapter playback is in, once mpv has reported one.
     pub fn chapter(&self) -> Option<ChapterIndex> {
-        lock(&self.shared).media.chapter
+        self.shared.borrow_mut().media.chapter
     }
 
     /// Seek to the start of a chapter.
     ///
     /// Fails with [`Error::NoSuchChapter`] when `index` is past the last chapter.
     pub fn set_chapter(&self, index: ChapterIndex) -> Result<(), Error> {
-        if index.get() as usize >= lock(&self.shared).media.chapters.len() {
+        if index.get() as usize >= self.shared.borrow_mut().media.chapters.len() {
             return Err(Error::NoSuchChapter(index.get()));
         }
         self.core
@@ -377,7 +378,7 @@ impl Player {
         self.core
             .get_double("volume")
             .and_then(Volume::from_mpv)
-            .unwrap_or(lock(&self.shared).media.volume)
+            .unwrap_or(self.shared.borrow_mut().media.volume)
     }
 
     /// Set the playback speed.
@@ -439,7 +440,7 @@ impl Player {
     }
 
     fn ingest_property(&mut self, name: &str, data: Value) {
-        let mut shared = lock(&self.shared);
+        let mut shared = self.shared.borrow_mut();
         if let Some(event) = shared.media.apply(name, &data) {
             self.events.push(event);
         }
@@ -544,7 +545,7 @@ impl Player {
             return Ok(self.withdraw_picture());
         }
         let (grade_dirty, slot_dirty, coefficients, equalizer) = {
-            let shared = lock(&self.shared);
+            let shared = self.shared.borrow_mut();
             (
                 matches!(shared.grade, Freshness::Dirty),
                 matches!(shared.slot_repaint, Freshness::Dirty),
@@ -606,7 +607,7 @@ impl Player {
             *shown = Shown::Current;
         }
         self.core.finish(swap);
-        let mut shared = lock(&self.shared);
+        let mut shared = self.shared.borrow_mut();
         shared.grade = Freshness::Clean;
         shared.slot_repaint = Freshness::Clean;
         Ok(Presentation::Updated)
