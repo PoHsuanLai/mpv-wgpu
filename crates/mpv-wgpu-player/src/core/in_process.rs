@@ -15,7 +15,7 @@ use crate::options::PlayerOptions;
 use crate::pipeline::Gpu;
 use crate::stats::Stats;
 use crate::types::{EndReason, Error, SlotSize, map_mpv};
-use crate::value::{Node, PropertyData};
+use crate::value::Value;
 
 enum NextFrame {
     Absent,
@@ -253,30 +253,30 @@ fn end_reason(reason: EndFileReason) -> EndReason {
     }
 }
 
-fn convert_data(data: MpvData) -> PropertyData {
+fn convert_data(data: MpvData) -> Value {
     match data {
-        MpvData::String(text) | MpvData::OsdString(text) => PropertyData::String(text),
-        MpvData::Flag(flag) => PropertyData::Flag(flag),
-        MpvData::Int64(number) => PropertyData::Int64(number),
-        MpvData::Double(number) => PropertyData::Double(number),
-        MpvData::Node(node) => PropertyData::Node(convert_node(node)),
-        _ => PropertyData::None,
+        MpvData::String(text) | MpvData::OsdString(text) => Value::String(text),
+        MpvData::Flag(flag) => Value::Flag(flag),
+        MpvData::Int64(number) => Value::Int64(number),
+        MpvData::Double(number) => Value::Double(number),
+        MpvData::Node(node) => convert_node(node),
+        _ => Value::None,
     }
 }
 
-fn convert_node(node: MpvNode) -> Node {
+fn convert_node(node: MpvNode) -> Value {
     match node {
-        MpvNode::Flag(flag) => Node::Flag(flag),
-        MpvNode::Int64(number) => Node::Int64(number),
-        MpvNode::Double(number) => Node::Double(number),
-        MpvNode::String(text) => Node::String(text),
-        MpvNode::Array(items) => Node::Array(items.into_iter().map(convert_node).collect()),
-        MpvNode::Map(entries) => Node::Map(
+        MpvNode::Flag(flag) => Value::Flag(flag),
+        MpvNode::Int64(number) => Value::Int64(number),
+        MpvNode::Double(number) => Value::Double(number),
+        MpvNode::String(text) => Value::String(text),
+        MpvNode::Array(items) => Value::Array(items.into_iter().map(convert_node).collect()),
+        MpvNode::Map(entries) => Value::Map(
             entries
                 .into_iter()
                 .map(|(key, value)| (key, convert_node(value)))
                 .collect(),
         ),
-        _ => Node::None,
+        _ => Value::None,
     }
 }

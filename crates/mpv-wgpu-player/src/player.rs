@@ -19,7 +19,7 @@ use crate::types::{
     Adjust, Deinterlace, Error, Event, Finite, Mute, Outcome, Picture, Playback, Presentation,
     Slot, SlotSize,
 };
-use crate::value::PropertyData;
+use crate::value::Value;
 
 enum Shown {
     Waiting,
@@ -443,14 +443,14 @@ impl Player {
         }
     }
 
-    fn ingest_property(&mut self, name: &str, data: PropertyData) {
+    fn ingest_property(&mut self, name: &str, data: Value) {
         let mut shared = lock(&self.shared);
         if let Some(event) = shared.media.apply(name, &data) {
             self.events.push(event);
         }
         match name {
             "pause" => {
-                if let PropertyData::Flag(paused) = data {
+                if let Value::Flag(paused) = data {
                     let playback = if paused {
                         Playback::Paused
                     } else {
@@ -510,19 +510,19 @@ impl Player {
                 }
             }
             "deinterlace" => {
-                if let PropertyData::String(text) = &data
+                if let Value::String(text) = &data
                     && let Some(mode) = Deinterlace::parse(text)
                 {
                     shared.deinterlace = mode;
                 }
             }
             "mute" => {
-                if let PropertyData::Flag(on) = data {
+                if let Value::Flag(on) = data {
                     shared.mute = if on { Mute::On } else { Mute::Off };
                 }
             }
             "video-params/colormatrix" => {
-                if let PropertyData::String(text) = &data {
+                if let Value::String(text) = &data {
                     let coefficients = Coefficients::parse(text);
                     if shared.coefficients != coefficients {
                         shared.coefficients = coefficients;
@@ -532,7 +532,7 @@ impl Player {
             }
             "video-params/gamma" => note_transfer(&mut shared.transfer, &data),
             "hwdec-current" => {
-                if let (HwdecLog::Unseen, PropertyData::String(text)) = (&shared.hwdec, &data) {
+                if let (HwdecLog::Unseen, Value::String(text)) = (&shared.hwdec, &data) {
                     log::info!("hwdec-current={text}");
                     shared.hwdec = HwdecLog::Logged;
                 }
@@ -659,10 +659,10 @@ fn start_core(
     }
 }
 
-fn finite_data(data: &PropertyData) -> Option<Finite> {
+fn finite_data(data: &Value) -> Option<Finite> {
     match data {
-        PropertyData::Double(value) => Finite::new(*value),
-        PropertyData::Int64(value) => Finite::new(*value as f64),
+        Value::Double(value) => Finite::new(*value),
+        Value::Int64(value) => Finite::new(*value as f64),
         _ => None,
     }
 }
@@ -677,24 +677,24 @@ pub(crate) fn hue_degrees_from_mpv(value: f64) -> Hue {
     Hue::new((value * 180.0 / 100.0).round() as i32)
 }
 
-fn property_f64(data: &PropertyData) -> Option<f64> {
+fn property_f64(data: &Value) -> Option<f64> {
     match data {
-        PropertyData::Double(value) if value.is_finite() => Some(*value),
-        PropertyData::Int64(value) => Some(*value as f64),
+        Value::Double(value) if value.is_finite() => Some(*value),
+        Value::Int64(value) => Some(*value as f64),
         _ => None,
     }
 }
 
-fn rounded(data: &PropertyData) -> Option<i32> {
+fn rounded(data: &Value) -> Option<i32> {
     match data {
-        PropertyData::Double(value) if value.is_finite() => Some(value.round() as i32),
-        PropertyData::Int64(value) => i32::try_from(*value).ok(),
+        Value::Double(value) if value.is_finite() => Some(value.round() as i32),
+        Value::Int64(value) => i32::try_from(*value).ok(),
         _ => None,
     }
 }
 
-fn note_transfer(note: &mut TransferNote, data: &PropertyData) {
-    let PropertyData::String(text) = data else {
+fn note_transfer(note: &mut TransferNote, data: &Value) {
+    let Value::String(text) = data else {
         return;
     };
     let hdr = text == "pq" || text == "hlg";

@@ -6,12 +6,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use mpv_wgpu_protocol::{Channel, Frame, Message, SlotRef, Value};
+use mpv_wgpu_protocol::{Channel, Frame, Message, SlotRef, Value as WireValue};
 
 use crate::core::CoreEvent;
 use crate::notify::{Notify, lock};
 use crate::types::{EndReason, Error};
-use crate::value::{Node, PropertyData};
+use crate::value::Value;
 
 /// How long a command, property write or property read may wait for mpv.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -20,7 +20,7 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 struct Inbox {
     events: VecDeque<CoreEvent>,
     frame: Option<Frame>,
-    replies: HashMap<u32, (i32, Value)>,
+    replies: HashMap<u32, (i32, WireValue)>,
     gone: bool,
     dropped: u64,
 }
@@ -67,7 +67,10 @@ impl Link {
     }
 
     /// Send a request and wait for its reply. Returns mpv's error code and the value.
-    pub(super) fn request(&self, make: impl FnOnce(u32) -> Message) -> Result<(i32, Value), Error> {
+    pub(super) fn request(
+        &self,
+        make: impl FnOnce(u32) -> Message,
+    ) -> Result<(i32, WireValue), Error> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         if lock(&self.inbox).gone {
             return Err(Error::HostGone);
@@ -152,8 +155,8 @@ impl Link {
                 }
                 self.notify.signal();
             }
-            Message::Property { name, value } => {
-                self.push(CoreEvent::Property(name, property_data(value)));
+            Message::Property { name, value: wire } => {
+                self.push(CoreEvent::Property(name, value(wire)));
             }
             Message::FileLoaded => self.push(CoreEvent::FileLoaded),
             Message::EndFile { reason, .. } => self.push(CoreEvent::Ended(end_reason(reason))),
@@ -186,29 +189,18 @@ fn end_reason(reason: u8) -> EndReason {
     }
 }
 
-fn property_data(value: Value) -> PropertyData {
-    match value {
-        Value::None => PropertyData::None,
-        Value::Flag(flag) => PropertyData::Flag(flag),
-        Value::Int64(number) => PropertyData::Int64(number),
-        Value::Double(number) => PropertyData::Double(number),
-        Value::String(text) => PropertyData::String(text),
-        other @ (Value::Array(_) | Value::Map(_)) => PropertyData::Node(node(other)),
-    }
-}
-
-fn node(value: Value) -> Node {
-    match value {
-        Value::None => Node::None,
-        Value::Flag(flag) => Node::Flag(flag),
-        Value::Int64(number) => Node::Int64(number),
-        Value::Double(number) => Node::Double(number),
-        Value::String(text) => Node::String(text),
-        Value::Array(items) => Node::Array(items.into_iter().map(node).collect()),
-        Value::Map(entries) => Node::Map(
+fn value(wire: WireValue) -> Value {
+    match wire {
+        WireValue::None => Value::None,
+        WireValue::Flag(flag) => Value::Flag(flag),
+        WireValue::Int64(number) => Value::Int64(number),
+        WireValue::Double(number) => Value::Double(number),
+        WireValue::String(text) => Value::String(text),
+        WireValue::Array(items) => Value::Array(items.into_iter().map(value).collect()),
+        WireValue::Map(entries) => Value::Map(
             entries
                 .into_iter()
-                .map(|(key, item)| (key, node(item)))
+                .map(|(key, item)| (key, value(item)))
                 .collect(),
         ),
     }
@@ -235,18 +227,18 @@ mod tests {
 
     #[test]
     fn structured_values_become_nodes() {
-        let value = Value::Array(vec![Value::Map(vec![
-            ("id".into(), Value::Int64(1)),
-            ("selected".into(), Value::Flag(true)),
+        let wire = WireValue::Array(vec![WireValue::Map(vec![
+            ("id".into(), WireValue::Int64(1)),
+            ("selected".into(), WireValue::Flag(true)),
         ])]);
         assert_eq!(
-            property_data(value),
-            PropertyData::Node(Node::Array(vec![Node::Map(vec![
-                ("id".into(), Node::Int64(1)),
-                ("selected".into(), Node::Flag(true)),
-            ])]))
+            value(wire),
+            Value::Array(vec![Value::Map(vec![
+                ("id".into(), Value::Int64(1)),
+                ("selected".into(), Value::Flag(true)),
+            ])])
         );
-        assert_eq!(property_data(Value::None), PropertyData::None);
-        assert_eq!(property_data(Value::Double(2.5)), PropertyData::Double(2.5));
+        assert_eq!(value(WireValue::None), Value::None);
+        assert_eq!(value(WireValue::Double(2.5)), Value::Double(2.5));
     }
 }

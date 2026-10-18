@@ -66,24 +66,24 @@ impl VideoPresence {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::Node;
+    use crate::value::Value;
 
     use super::*;
     use crate::tracks::parse_track_list;
 
-    fn video(albumart: bool, selected: bool) -> Node {
-        Node::Array(vec![Node::Map(vec![
-            ("id".into(), Node::Int64(1)),
-            ("type".into(), Node::String("video".into())),
-            ("albumart".into(), Node::Flag(albumart)),
-            ("selected".into(), Node::Flag(selected)),
+    fn video(albumart: bool, selected: bool) -> Value {
+        Value::Array(vec![Value::Map(vec![
+            ("id".into(), Value::Int64(1)),
+            ("type".into(), Value::String("video".into())),
+            ("albumart".into(), Value::Flag(albumart)),
+            ("selected".into(), Value::Flag(selected)),
         ])])
     }
 
     #[test]
     fn video_presence_follows_the_selected_video_track() {
-        let cases: Vec<(&str, Node, VideoPresence)> = vec![
-            ("no tracks", Node::Array(vec![]), VideoPresence::Absent),
+        let cases: Vec<(&str, Value, VideoPresence)> = vec![
+            ("no tracks", Value::Array(vec![]), VideoPresence::Absent),
             (
                 "video track not selected",
                 video(false, false),

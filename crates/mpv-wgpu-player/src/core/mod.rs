@@ -4,7 +4,7 @@
 use crate::pipeline::Gpu;
 use crate::stats::Stats;
 use crate::types::{EndReason, Error, SlotSize};
-use crate::value::PropertyData;
+use crate::value::Value;
 
 #[cfg(feature = "in-process")]
 pub(crate) mod in_process;
@@ -58,7 +58,7 @@ pub(crate) const OBSERVED: &[(&str, ObserveAs)] = &[
 pub(crate) enum CoreEvent {
     FileLoaded,
     Ended(EndReason),
-    Property(String, PropertyData),
+    Property(String, Value),
     Log { prefix: String, text: String },
 }
 

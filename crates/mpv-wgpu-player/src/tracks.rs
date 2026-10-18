@@ -3,7 +3,7 @@
 use std::fmt;
 use std::num::NonZeroU32;
 
-use crate::value::Node;
+use crate::value::Value;
 
 use crate::nodes::{field, flag, int, text};
 
@@ -205,19 +205,19 @@ impl<'a> IntoIterator for &'a TrackList {
 
 /// Parse mpv's `track-list` node. Anything that is not an array yields an empty
 /// list, and entries with an unknown type or an id below 1 are dropped.
-pub(crate) fn parse_track_list(node: &Node) -> TrackList {
-    let Node::Array(items) = node else {
+pub(crate) fn parse_track_list(node: &Value) -> TrackList {
+    let Value::Array(items) = node else {
         return TrackList::default();
     };
     TrackList(items.iter().filter_map(parse_track).collect())
 }
 
-fn parse_track(node: &Node) -> Option<Track> {
-    let Node::Map(entries) = node else {
+fn parse_track(node: &Value) -> Option<Track> {
+    let Value::Map(entries) = node else {
         return None;
     };
     let kind = match field(entries, "type") {
-        Some(Node::String(name)) => TrackKind::parse(name)?,
+        Some(Value::String(name)) => TrackKind::parse(name)?,
         _ => return None,
     };
     let id = TrackId::new(u32::try_from(int(entries, "id")?).ok()?)?;
@@ -254,8 +254,8 @@ fn parse_track(node: &Node) -> Option<Track> {
 mod tests {
     use super::*;
 
-    fn map(entries: &[(&str, Node)]) -> Node {
-        Node::Map(
+    fn map(entries: &[(&str, Value)]) -> Value {
+        Value::Map(
             entries
                 .iter()
                 .map(|(key, value)| ((*key).to_string(), value.clone()))
@@ -263,8 +263,8 @@ mod tests {
         )
     }
 
-    fn s(value: &str) -> Node {
-        Node::String(value.to_string())
+    fn s(value: &str) -> Value {
+        Value::String(value.to_string())
     }
 
     fn id(value: u32) -> TrackId {
@@ -273,29 +273,29 @@ mod tests {
 
     #[test]
     fn parse_track_list_reads_every_field() {
-        let node = Node::Array(vec![
+        let node = Value::Array(vec![
             map(&[
-                ("id", Node::Int64(1)),
+                ("id", Value::Int64(1)),
                 ("type", s("video")),
                 ("codec", s("h264")),
-                ("default", Node::Flag(true)),
-                ("selected", Node::Flag(true)),
-                ("albumart", Node::Flag(false)),
+                ("default", Value::Flag(true)),
+                ("selected", Value::Flag(true)),
+                ("albumart", Value::Flag(false)),
             ]),
             map(&[
-                ("id", Node::Int64(2)),
+                ("id", Value::Int64(2)),
                 ("type", s("audio")),
                 ("title", s("Commentary")),
                 ("lang", s("en")),
                 ("codec", s("aac")),
-                ("default", Node::Flag(false)),
-                ("selected", Node::Flag(false)),
+                ("default", Value::Flag(false)),
+                ("selected", Value::Flag(false)),
             ]),
             map(&[
-                ("id", Node::Int64(1)),
+                ("id", Value::Int64(1)),
                 ("type", s("sub")),
                 ("lang", s("de")),
-                ("external", Node::Flag(true)),
+                ("external", Value::Flag(true)),
             ]),
         ]);
         let list = parse_track_list(&node);
@@ -339,35 +339,35 @@ mod tests {
 
     #[test]
     fn parse_track_list_drops_unusable_entries() {
-        let cases: Vec<(&str, Node, usize)> = vec![
-            ("not an array", Node::None, 0),
-            ("empty array", Node::Array(vec![]), 0),
+        let cases: Vec<(&str, Value, usize)> = vec![
+            ("not an array", Value::None, 0),
+            ("empty array", Value::Array(vec![]), 0),
             (
                 "unknown type",
-                Node::Array(vec![map(&[("id", Node::Int64(1)), ("type", s("data"))])]),
+                Value::Array(vec![map(&[("id", Value::Int64(1)), ("type", s("data"))])]),
                 0,
             ),
             (
                 "zero id",
-                Node::Array(vec![map(&[("id", Node::Int64(0)), ("type", s("audio"))])]),
+                Value::Array(vec![map(&[("id", Value::Int64(0)), ("type", s("audio"))])]),
                 0,
             ),
             (
                 "negative id",
-                Node::Array(vec![map(&[("id", Node::Int64(-1)), ("type", s("audio"))])]),
+                Value::Array(vec![map(&[("id", Value::Int64(-1)), ("type", s("audio"))])]),
                 0,
             ),
             (
                 "missing id",
-                Node::Array(vec![map(&[("type", s("audio"))])]),
+                Value::Array(vec![map(&[("type", s("audio"))])]),
                 0,
             ),
-            ("entry is not a map", Node::Array(vec![s("audio")]), 0),
+            ("entry is not a map", Value::Array(vec![s("audio")]), 0),
             (
                 "valid entry beside a bad one",
-                Node::Array(vec![
+                Value::Array(vec![
                     map(&[("type", s("audio"))]),
-                    map(&[("id", Node::Int64(3)), ("type", s("audio"))]),
+                    map(&[("id", Value::Int64(3)), ("type", s("audio"))]),
                 ]),
                 1,
             ),
@@ -379,8 +379,8 @@ mod tests {
 
     #[test]
     fn empty_strings_are_absent_tags() {
-        let node = Node::Array(vec![map(&[
-            ("id", Node::Int64(1)),
+        let node = Value::Array(vec![map(&[
+            ("id", Value::Int64(1)),
             ("type", s("audio")),
             ("title", s("")),
             ("lang", s("")),
@@ -395,17 +395,17 @@ mod tests {
 
     #[test]
     fn album_art_only_marks_video_tracks() {
-        let node = Node::Array(vec![
+        let node = Value::Array(vec![
             map(&[
-                ("id", Node::Int64(1)),
+                ("id", Value::Int64(1)),
                 ("type", s("video")),
-                ("albumart", Node::Flag(true)),
-                ("selected", Node::Flag(true)),
+                ("albumart", Value::Flag(true)),
+                ("selected", Value::Flag(true)),
             ]),
             map(&[
-                ("id", Node::Int64(1)),
+                ("id", Value::Int64(1)),
                 ("type", s("audio")),
-                ("albumart", Node::Flag(true)),
+                ("albumart", Value::Flag(true)),
             ]),
         ]);
         let list = parse_track_list(&node);
@@ -417,12 +417,12 @@ mod tests {
 
     #[test]
     fn lookups_respect_the_kind() {
-        let node = Node::Array(vec![
-            map(&[("id", Node::Int64(1)), ("type", s("video"))]),
+        let node = Value::Array(vec![
+            map(&[("id", Value::Int64(1)), ("type", s("video"))]),
             map(&[
-                ("id", Node::Int64(1)),
+                ("id", Value::Int64(1)),
                 ("type", s("audio")),
-                ("selected", Node::Flag(true)),
+                ("selected", Value::Flag(true)),
             ]),
         ]);
         let list = parse_track_list(&node);

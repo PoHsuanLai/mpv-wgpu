@@ -1,24 +1,14 @@
 //! Property values as the player reads them, whichever core produced them.
 
-/// A structured mpv value: the track and chapter lists arrive as these.
+/// A structured mpv value: the track and chapter lists arrive as these, and so does every
+/// observed property.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Node {
+pub(crate) enum Value {
     None,
     Flag(bool),
     Int64(i64),
     Double(f64),
     String(String),
-    Array(Vec<Node>),
-    Map(Vec<(String, Node)>),
-}
-
-/// The data of an observed property.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum PropertyData {
-    None,
-    String(String),
-    Flag(bool),
-    Int64(i64),
-    Double(f64),
-    Node(Node),
+    Array(Vec<Value>),
+    Map(Vec<(String, Value)>),
 }

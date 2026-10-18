@@ -1,6 +1,6 @@
 //! Chapter marks, read from mpv's `chapter-list`.
 
-use crate::value::Node;
+use crate::value::Value;
 
 use crate::nodes::{seconds, text};
 use crate::types::Finite;
@@ -36,14 +36,14 @@ impl ChapterIndex {
 
 /// Parse mpv's `chapter-list` node. Anything that is not an array yields no
 /// chapters, and entries without a finite `time` are dropped.
-pub(crate) fn parse_chapter_list(node: &Node) -> Vec<Chapter> {
-    let Node::Array(items) = node else {
+pub(crate) fn parse_chapter_list(node: &Value) -> Vec<Chapter> {
+    let Value::Array(items) = node else {
         return Vec::new();
     };
     items
         .iter()
         .filter_map(|item| {
-            let Node::Map(entries) = item else {
+            let Value::Map(entries) = item else {
                 return None;
             };
             Some(Chapter {
@@ -58,12 +58,12 @@ pub(crate) fn parse_chapter_list(node: &Node) -> Vec<Chapter> {
 mod tests {
     use super::*;
 
-    fn entry(title: Option<&str>, time: Node) -> Node {
+    fn entry(title: Option<&str>, time: Value) -> Value {
         let mut entries = vec![("time".to_string(), time)];
         if let Some(title) = title {
-            entries.push(("title".to_string(), Node::String(title.to_string())));
+            entries.push(("title".to_string(), Value::String(title.to_string())));
         }
-        Node::Map(entries)
+        Value::Map(entries)
     }
 
     fn finite(value: f64) -> Finite {
@@ -72,10 +72,10 @@ mod tests {
 
     #[test]
     fn parse_chapter_list_reads_titles_and_starts() {
-        let node = Node::Array(vec![
-            entry(Some("Intro"), Node::Double(0.0)),
-            entry(Some("Main"), Node::Double(12.5)),
-            entry(None, Node::Int64(30)),
+        let node = Value::Array(vec![
+            entry(Some("Intro"), Value::Double(0.0)),
+            entry(Some("Main"), Value::Double(12.5)),
+            entry(None, Value::Int64(30)),
         ]);
         assert_eq!(
             parse_chapter_list(&node),
@@ -98,28 +98,28 @@ mod tests {
 
     #[test]
     fn parse_chapter_list_drops_unusable_entries() {
-        let cases: Vec<(&str, Node, usize)> = vec![
-            ("not an array", Node::String("x".into()), 0),
-            ("empty", Node::Array(vec![]), 0),
+        let cases: Vec<(&str, Value, usize)> = vec![
+            ("not an array", Value::String("x".into()), 0),
+            ("empty", Value::Array(vec![]), 0),
             (
                 "nan time",
-                Node::Array(vec![entry(Some("a"), Node::Double(f64::NAN))]),
+                Value::Array(vec![entry(Some("a"), Value::Double(f64::NAN))]),
                 0,
             ),
             (
                 "missing time",
-                Node::Array(vec![Node::Map(vec![(
+                Value::Array(vec![Value::Map(vec![(
                     "title".to_string(),
-                    Node::String("a".into()),
+                    Value::String("a".into()),
                 )])]),
                 0,
             ),
-            ("entry is not a map", Node::Array(vec![Node::Int64(1)]), 0),
+            ("entry is not a map", Value::Array(vec![Value::Int64(1)]), 0),
             (
                 "good entry kept",
-                Node::Array(vec![
-                    entry(Some("a"), Node::String("later".into())),
-                    entry(Some("b"), Node::Double(1.0)),
+                Value::Array(vec![
+                    entry(Some("a"), Value::String("later".into())),
+                    entry(Some("b"), Value::Double(1.0)),
                 ]),
                 1,
             ),
