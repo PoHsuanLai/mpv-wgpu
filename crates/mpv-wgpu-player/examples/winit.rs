@@ -182,8 +182,8 @@ impl Host {
             return false;
         };
         match player.poll() {
-            Ok(outcome) => {
-                if matches!(outcome.presentation, Presentation::Updated)
+            Ok(presentation) => {
+                if matches!(presentation, Presentation::Updated)
                     && matches!(player.picture(), Picture::Shown(_))
                     && !self.logged_shown
                 {

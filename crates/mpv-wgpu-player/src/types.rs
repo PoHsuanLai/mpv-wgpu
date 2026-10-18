@@ -154,16 +154,10 @@ impl fmt::Display for Mute {
     }
 }
 
-/// What [`crate::Player::poll`] did to the public texture.
+/// What [`crate::Player::poll`] did to the public texture: whether the texels a host would sample
+/// changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
-pub struct Outcome {
-    /// Whether the texels a host would sample changed.
-    pub presentation: Presentation,
-}
-
-/// Whether the public texture changed on this poll.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presentation {
     /// Same texels as before this poll.
     Unchanged,

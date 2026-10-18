@@ -142,7 +142,7 @@ fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), m
         height: NonZeroU32::new(720).expect("non-zero"),
     }))?;
     player.load(path)?;
-    player.poll()?;
+    let _ = player.poll()?;
     if let Picture::Shown(view) = player.picture() {
         let _sampled = view;
     }

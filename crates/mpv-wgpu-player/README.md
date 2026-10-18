@@ -102,8 +102,7 @@ fn start(device: &wgpu::Device, queue: &wgpu::Queue, path: &str) -> Result<(), m
         height: NonZeroU32::new(720).expect("non-zero"),
     }))?;
     player.load(path)?;
-    let outcome = player.poll()?;
-    let _presentation = outcome.presentation;
+    let _presentation = player.poll()?;
     for event in player.events() {
         if let Event::Loaded = event {
             let _duration = player.duration();

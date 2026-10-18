@@ -17,8 +17,8 @@ use crate::quantities::{Speed, Volume};
 use crate::stats::Stats;
 use crate::tracks::{TrackChoice, TrackKind, TrackList};
 use crate::types::{
-    Adjust, Deinterlace, Error, Event, Finite, Mute, Outcome, Picture, Playback, Presentation,
-    Slot, SlotSize,
+    Adjust, Deinterlace, Error, Event, Finite, Mute, Picture, Playback, Presentation, Slot,
+    SlotSize,
 };
 use crate::value::Value;
 
@@ -201,14 +201,14 @@ impl Player {
     }
 
     /// Drain mpv, upload a software frame when there is one, and submit the equalizer pass.
-    pub fn poll(&mut self) -> Result<Outcome, Error> {
+    pub fn poll(&mut self) -> Result<Presentation, Error> {
         self.notify.clear_pending();
         self.events.clear();
         self.drain_events();
         self.core.check()?;
         let presentation = self.present()?;
         self.flush_stats();
-        Ok(Outcome { presentation })
+        Ok(presentation)
     }
 
     /// The picture written by the last successful pass.

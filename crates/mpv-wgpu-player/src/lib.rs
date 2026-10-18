@@ -87,7 +87,7 @@
 //!         height: NonZeroU32::new(720).expect("non-zero"),
 //!     }))?;
 //!     player.load(path)?;
-//!     player.poll()?;
+//!     let _ = player.poll()?;
 //!     if let Picture::Shown(view) = player.picture() {
 //!         let _sampled = view;
 //!     }
@@ -156,6 +156,6 @@ pub use tracks::{
     TrackSelection,
 };
 pub use types::{
-    Adjust, Deinterlace, EndReason, Error, Event, Finite, MpvError, Mute, Outcome, Picture,
-    Playback, Presentation, Seek, Slot, SlotSize,
+    Adjust, Deinterlace, EndReason, Error, Event, Finite, MpvError, Mute, Picture, Playback,
+    Presentation, Seek, Slot, SlotSize,
 };

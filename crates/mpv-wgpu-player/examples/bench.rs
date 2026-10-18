@@ -78,10 +78,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut window_updates = 0u64;
     while started.elapsed() < Duration::from_secs(seconds) {
         let _ = woken.recv_timeout(Duration::from_millis(100));
-        let outcome = player.poll()?;
-        if outcome.presentation == Presentation::Updated
-            && matches!(player.picture(), Picture::Shown(_))
-        {
+        let presentation = player.poll()?;
+        if presentation == Presentation::Updated && matches!(player.picture(), Picture::Shown(_)) {
             first.get_or_insert_with(|| started.elapsed());
             updates += 1;
             window_updates += 1;
