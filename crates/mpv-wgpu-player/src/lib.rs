@@ -12,7 +12,7 @@
 //!
 //! # Two hosts for mpv
 //!
-//! Where mpv runs is a [`Host`], chosen with [`Player::with_host`]. Everything
+//! Where mpv runs is a [`Host`], chosen with [`PlayerOptions::host`]. Everything
 //! else in the API is the same in both.
 //!
 //! | | [`Host::InProcess`] | [`Host::Subprocess`] |

@@ -57,13 +57,13 @@ fn marked_host(marker: &str) -> Option<Host> {
 
 fn player_on(host: Host) -> Result<Player, Error> {
     let (device, queue) = open_device().expect("a wgpu device");
-    Player::with_host(
+    Player::new(
         &device,
         &queue,
         PlayerOptions {
             audio_output: AudioOutput::Null,
+            host,
         },
-        host,
     )
 }
 

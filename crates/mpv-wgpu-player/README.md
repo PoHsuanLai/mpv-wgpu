@@ -25,7 +25,7 @@ cargo doc --open -p mpv-wgpu-player
 
 ## Two hosts for mpv
 
-`Player::new` uses `Host::default()`: libmpv in this process when the `in-process` feature is on (the default), the child process otherwise. `Player::with_host(device, queue, options, host)` picks one. Everything else in the API is the same in both modes.
+`PlayerOptions::default()` uses `Host::default()`: libmpv in this process when the `in-process` feature is on (the default), the child process otherwise. `PlayerOptions::host` picks one. Everything else in the API is the same in both modes.
 
 | | `Host::InProcess` | `Host::Subprocess(SubprocessOptions)` |
 | --- | --- | --- |
@@ -45,11 +45,13 @@ Distro builds of libmpv are GPL-2.0-or-later (LGPL with `-Dgpl=false`), and so a
 use mpv_wgpu_player::{Host, Player, PlayerOptions, SubprocessOptions};
 
 fn start(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Player, mpv_wgpu_player::Error> {
-    Player::with_host(
+    Player::new(
         device,
         queue,
-        PlayerOptions::default(),
-        Host::Subprocess(SubprocessOptions::default()),
+        PlayerOptions {
+            host: Host::Subprocess(SubprocessOptions::default()),
+            ..PlayerOptions::default()
+        },
     )
 }
 ```

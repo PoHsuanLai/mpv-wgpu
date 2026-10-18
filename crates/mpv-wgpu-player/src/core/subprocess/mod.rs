@@ -20,7 +20,7 @@ use mpv_wgpu_protocol::{
 use self::link::Link;
 use super::{Core, CoreEvent, OBSERVED, ObserveAs, PropValue, Pulled};
 use crate::notify::Notify;
-use crate::options::{PlayerOptions, SubprocessOptions};
+use crate::options::{AudioOutput, SubprocessOptions};
 use crate::pipeline::Gpu;
 use crate::stats::Stats;
 use crate::types::{Error, MpvError, SlotSize};
@@ -50,11 +50,11 @@ struct Delivery {
 
 impl Subprocess {
     pub(crate) fn start(
-        player: PlayerOptions,
+        audio: AudioOutput,
         options: &SubprocessOptions,
         notify: &Arc<Notify>,
     ) -> Result<Self, Error> {
-        let spawned = spawn::spawn(player, options)?;
+        let spawned = spawn::spawn(audio, options)?;
         log::info!(
             "mpv child: {} (client API {}.{}, plugin {})",
             spawned.hello.mpv_version,

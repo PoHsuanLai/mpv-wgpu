@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use mpv_wgpu_protocol::{Channel, Hello, Listener, Message, PROTOCOL_VERSION};
 
 use crate::notify::lock;
-use crate::options::{PlayerOptions, SubprocessOptions};
+use crate::options::{AudioOutput, SubprocessOptions};
 use crate::types::Error;
 
 /// Environment variable naming the `mpv` executable.
@@ -86,14 +86,14 @@ fn not_found(tried: &[PathBuf]) -> Error {
 }
 
 /// Start `mpv` with the plugin, wait for it to connect, and read its hello.
-pub(super) fn spawn(player: PlayerOptions, options: &SubprocessOptions) -> Result<Spawned, Error> {
+pub(super) fn spawn(audio: AudioOutput, options: &SubprocessOptions) -> Result<Spawned, Error> {
     let plugin = cplugin_path(options)?;
     let program = mpv_program(options);
     let listener = Listener::bind_random().map_err(start_error("cannot open the plugin socket"))?;
 
     let mut command = Command::new(&program);
     command
-        .args(mpv_args(player, &plugin, options))
+        .args(mpv_args(audio, &plugin, options))
         .env(SOCKET_ENV, listener.name())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -165,7 +165,7 @@ fn start_error(what: &'static str) -> impl Fn(std::io::Error) -> Error {
 
 /// The command line: the player's own options, then the caller's extras.
 pub(crate) fn mpv_args(
-    player: PlayerOptions,
+    audio: AudioOutput,
     plugin: &Path,
     options: &SubprocessOptions,
 ) -> Vec<OsString> {
@@ -191,7 +191,7 @@ pub(crate) fn mpv_args(
     .iter()
     .map(OsString::from)
     .collect();
-    if let Some(driver) = player.audio_output.as_mpv() {
+    if let Some(driver) = audio.as_mpv() {
         args.push(format!("--ao={driver}").into());
     }
     let mut script = OsString::from("--script=");
@@ -284,7 +284,6 @@ pub(super) fn kill(child: &mut Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::AudioOutput;
 
     fn hello(protocol: u16, api: u32) -> Hello {
         Hello {
@@ -316,9 +315,7 @@ mod tests {
             ..SubprocessOptions::default()
         };
         let args: Vec<String> = mpv_args(
-            PlayerOptions {
-                audio_output: AudioOutput::Null,
-            },
+            AudioOutput::Null,
             Path::new("/x/libmpv_wgpu_cplugin.so"),
             &options,
         )
@@ -339,7 +336,7 @@ mod tests {
         }
         assert_eq!(args.last().map(String::as_str), Some("--hwdec=no"));
         let auto = mpv_args(
-            PlayerOptions::default(),
+            AudioOutput::default(),
             Path::new("/p.so"),
             &SubprocessOptions::default(),
         );

@@ -113,7 +113,7 @@ The pixel contract is in the [picture crate README](crates/mpv-wgpu/README.md). 
 
 ## What the player crate replaces
 
-`Player` is an mpv client with `vo=libmpv` and a software render context created before `loadfile`. The mpv core runs in one of two places, chosen at construction with `Player::with_host`:
+`Player` is an mpv client with `vo=libmpv` and a software render context created before `loadfile`. The mpv core runs in one of two places, chosen at construction with `PlayerOptions::host`:
 
 - **In process** (cargo feature `in-process`, the default): libmpv linked into your binary.
 - **Subprocess** (feature `subprocess`): the user's own `mpv` executable runs as a child process with a small plugin loaded into it, which renders into a shared-memory frame ring and forwards commands, properties and events over a Unix socket. Nothing from mpv is linked: `cargo tree` shows no `rsmpv` or `libmpv-sys`, and `ldd` of the plugin shows no libmpv.

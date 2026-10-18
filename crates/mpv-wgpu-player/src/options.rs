@@ -52,10 +52,12 @@ impl fmt::Display for AudioOutput {
 }
 
 /// What a [`crate::Player`] is created with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PlayerOptions {
     /// Which audio driver mpv opens.
     pub audio_output: AudioOutput,
+    /// Where the mpv core runs; [`Host::default`] when not set.
+    pub host: Host,
 }
 
 /// Where the mpv core runs.

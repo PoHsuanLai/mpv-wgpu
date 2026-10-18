@@ -84,9 +84,12 @@ pub struct Player {
 }
 
 impl Player {
-    /// Start an mpv core on `device` / `queue`, in the way [`Host::default`] says.
+    /// Start an mpv core on `device` / `queue`, where `options.host` says.
     ///
-    /// `options` picks the audio driver; [`PlayerOptions::default`] lets mpv probe.
+    /// `options` picks the audio driver and where the core runs; [`PlayerOptions::default`] lets
+    /// mpv probe the drivers and uses [`Host::default`]. [`Host::InProcess`] needs the
+    /// `in-process` cargo feature and [`Host::Subprocess`] needs the `subprocess` feature; asking
+    /// for a mode that was compiled out fails with [`Error::HostStart`].
     ///
     /// The core is idle until [`Player::load`]. Register [`Player::set_notify`]
     /// before relying on wakes; a wake that arrives first is remembered.
@@ -95,22 +98,8 @@ impl Player {
         queue: &wgpu::Queue,
         options: PlayerOptions,
     ) -> Result<Self, Error> {
-        Self::with_host(device, queue, options, Host::default())
-    }
-
-    /// Like [`Player::new`], choosing where the mpv core runs.
-    ///
-    /// [`Host::InProcess`] needs the `in-process` cargo feature and
-    /// [`Host::Subprocess`] needs the `subprocess` feature; asking for a mode that
-    /// was compiled out fails with [`Error::HostStart`].
-    pub fn with_host(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        options: PlayerOptions,
-        host: Host,
-    ) -> Result<Self, Error> {
         let notify = Notify::new();
-        let core = start_core(options, host, &notify)?;
+        let core = start_core(options, &notify)?;
         let pipeline = Pipeline::new(device)?;
         let player = Self {
             core,
@@ -630,23 +619,23 @@ impl Player {
     }
 }
 
-fn start_core(
-    options: PlayerOptions,
-    host: Host,
-    notify: &Arc<Notify>,
-) -> Result<Box<dyn Core>, Error> {
+fn start_core(options: PlayerOptions, notify: &Arc<Notify>) -> Result<Box<dyn Core>, Error> {
+    let PlayerOptions { audio_output, host } = options;
     match host {
         #[cfg(feature = "in-process")]
         Host::InProcess => Ok(Box::new(crate::core::in_process::InProcess::new(
-            options, notify,
+            audio_output,
+            notify,
         )?)),
         #[cfg(feature = "subprocess")]
         Host::Subprocess(host) => Ok(Box::new(crate::core::subprocess::Subprocess::start(
-            options, &host, notify,
+            audio_output,
+            &host,
+            notify,
         )?)),
         #[allow(unreachable_patterns)]
         _ => {
-            let _ = (options, notify);
+            let _ = (audio_output, notify);
             Err(Error::HostStart(
                 "this host mode was compiled out; enable the `in-process` or `subprocess` feature"
                     .to_string(),

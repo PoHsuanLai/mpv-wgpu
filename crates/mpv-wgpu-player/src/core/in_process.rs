@@ -11,7 +11,7 @@ use rsmpv::{
 use super::{Core, CoreEvent, OBSERVED, ObserveAs, PropValue, Pulled};
 use crate::frame_buffer::FrameBuffer;
 use crate::notify::Notify;
-use crate::options::PlayerOptions;
+use crate::options::AudioOutput;
 use crate::pipeline::Gpu;
 use crate::stats::Stats;
 use crate::types::{EndReason, Error, SlotSize, map_mpv};
@@ -32,8 +32,8 @@ pub(crate) struct InProcess {
 }
 
 impl InProcess {
-    pub(crate) fn new(options: PlayerOptions, notify: &Arc<Notify>) -> Result<Self, Error> {
-        let core = build_core(options)?;
+    pub(crate) fn new(audio: AudioOutput, notify: &Arc<Notify>) -> Result<Self, Error> {
+        let core = build_core(audio)?;
         let core = Arc::new(core);
         let mut render = OwnedRenderContext::new_software(Arc::clone(&core)).map_err(map_mpv)?;
         let signal_target = Arc::clone(notify);
@@ -172,7 +172,7 @@ impl Core for InProcess {
     }
 }
 
-fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
+fn build_core(audio: AudioOutput) -> Result<Mpv, Error> {
     let mut builder = Mpv::builder().map_err(map_mpv)?;
     let mut settings: Vec<(&str, &str)> = vec![
         ("vo", "libmpv"),
@@ -188,7 +188,7 @@ fn build_core(options: PlayerOptions) -> Result<Mpv, Error> {
         ("input-default-bindings", "no"),
         ("input-vo-keyboard", "no"),
     ];
-    if let Some(driver) = options.audio_output.as_mpv() {
+    if let Some(driver) = audio.as_mpv() {
         settings.push(("ao", driver));
     }
     for (name, value) in settings {

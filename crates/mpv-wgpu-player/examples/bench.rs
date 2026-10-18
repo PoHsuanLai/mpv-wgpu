@@ -53,13 +53,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         trace: wgpu::Trace::Off,
     }))?;
 
-    let mut player = Player::with_host(
+    let mut player = Player::new(
         &device,
         &queue,
         PlayerOptions {
             audio_output: AudioOutput::Null,
+            host,
         },
-        host,
     )?;
     let (wake, woken) = mpsc::channel::<()>();
     player.set_notify(move || {

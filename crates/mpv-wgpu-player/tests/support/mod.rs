@@ -145,13 +145,13 @@ impl Harness {
                 return None;
             }
         };
-        let player = Player::with_host(
+        let player = Player::new(
             &device,
             &queue,
             PlayerOptions {
                 audio_output: AudioOutput::Null,
+                host,
             },
-            host,
         )
         .expect("player");
         Some(Self {
