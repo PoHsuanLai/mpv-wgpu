@@ -10,8 +10,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use mpv_wgpu_protocol::{
-    Channel, Format, Frame as FrameMessage, Hello, Message, PROTOCOL_VERSION, Ring, RingLayout,
-    Value, monotonic_ns,
+    Channel, EndReason, Format, Frame as FrameMessage, Hello, Message, PROTOCOL_VERSION, Ring,
+    RingLayout, Value, monotonic_ns,
 };
 
 use crate::convert;
@@ -511,7 +511,7 @@ unsafe fn forward_event(shared: &Shared, event: &mpv_event) {
             // SAFETY: END_FILE data is an `mpv_event_end_file`.
             let end = unsafe { &*event.data.cast::<mpv_event_end_file>() };
             shared.send(&Message::EndFile {
-                reason: u8::try_from(end.reason).unwrap_or(u8::MAX),
+                reason: EndReason::from_mpv(end.reason),
                 error: end.error,
             });
         }

@@ -18,6 +18,45 @@ pub const MAX_MESSAGE: usize = 512 * 1024;
 /// Nesting limit for [`Value`]. mpv's property trees are two or three deep.
 const MAX_DEPTH: usize = 16;
 
+/// Why mpv ended a file: `mpv_end_file_reason`, carried as mpv's own number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndReason {
+    /// The file played to its end (0).
+    Eof,
+    /// Playback was stopped (2).
+    Stop,
+    /// mpv is quitting (3).
+    Quit,
+    /// Playback failed, or the number is not one this protocol knows (4).
+    Error,
+    /// The file was a playlist or redirect (5).
+    Redirect,
+}
+
+impl EndReason {
+    /// The reason for mpv's number; any number but 0, 2, 3 and 5 is an error.
+    pub fn from_mpv(number: i32) -> Self {
+        match number {
+            0 => Self::Eof,
+            2 => Self::Stop,
+            3 => Self::Quit,
+            5 => Self::Redirect,
+            _ => Self::Error,
+        }
+    }
+
+    /// mpv's number for this reason, as it goes on the wire.
+    pub fn to_mpv(self) -> u8 {
+        match self {
+            Self::Eof => 0,
+            Self::Stop => 2,
+            Self::Quit => 3,
+            Self::Error => 4,
+            Self::Redirect => 5,
+        }
+    }
+}
+
 /// A property or command result: the subset of `mpv_node` the player uses.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -157,8 +196,8 @@ pub enum Message {
     FileLoaded,
     /// Plugin to player: `MPV_EVENT_END_FILE`.
     EndFile {
-        /// `mpv_end_file_reason`.
-        reason: u8,
+        /// Why the file ended.
+        reason: EndReason,
         /// `mpv_error`, 0 unless the reason is an error.
         error: i32,
     },
@@ -545,7 +584,7 @@ impl Message {
             Message::FileLoaded => w.u8(T_FILE_LOADED),
             Message::EndFile { reason, error } => {
                 w.u8(T_END_FILE);
-                w.u8(*reason);
+                w.u8(reason.to_mpv());
                 w.i32(*error);
             }
             Message::Log {
@@ -643,7 +682,7 @@ impl Message {
             },
             T_FILE_LOADED => Message::FileLoaded,
             T_END_FILE => Message::EndFile {
-                reason: r.u8()?,
+                reason: EndReason::from_mpv(i32::from(r.u8()?)),
                 error: r.i32()?,
             },
             T_LOG => Message::Log {
@@ -751,7 +790,7 @@ mod tests {
             },
             Message::FileLoaded,
             Message::EndFile {
-                reason: 4,
+                reason: EndReason::Error,
                 error: -13,
             },
             Message::Log {

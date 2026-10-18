@@ -26,7 +26,7 @@ mod ring;
 
 pub use channel::{Channel, Listener, monotonic_ns};
 pub use message::{
-    DecodeError, EncodeError, Format, Frame, Hello, MAX_MESSAGE, Message, PROTOCOL_VERSION, Resize,
-    SlotRef, Value,
+    DecodeError, EncodeError, EndReason, Format, Frame, Hello, MAX_MESSAGE, Message,
+    PROTOCOL_VERSION, Resize, SlotRef, Value,
 };
 pub use ring::{Ring, RingError, RingLayout, SLOTS, row_stride};

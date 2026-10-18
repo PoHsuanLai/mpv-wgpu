@@ -6,7 +6,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use mpv_wgpu_protocol::{Channel, Frame, Message, SlotRef, Value as WireValue};
+use mpv_wgpu_protocol::{
+    Channel, EndReason as WireEnd, Frame, Message, SlotRef, Value as WireValue,
+};
 
 use crate::core::CoreEvent;
 use crate::notify::{Notify, lock};
@@ -178,14 +180,13 @@ impl Link {
     }
 }
 
-/// mpv's `mpv_end_file_reason` numbers.
-fn end_reason(reason: u8) -> EndReason {
+fn end_reason(reason: WireEnd) -> EndReason {
     match reason {
-        0 => EndReason::Eof,
-        2 => EndReason::Stop,
-        3 => EndReason::Quit,
-        5 => EndReason::Redirect,
-        _ => EndReason::Error,
+        WireEnd::Eof => EndReason::Eof,
+        WireEnd::Stop => EndReason::Stop,
+        WireEnd::Quit => EndReason::Quit,
+        WireEnd::Redirect => EndReason::Redirect,
+        WireEnd::Error => EndReason::Error,
     }
 }
 
@@ -209,21 +210,6 @@ fn value(wire: WireValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn end_reasons_follow_mpv_numbers() {
-        let cases = [
-            (0, EndReason::Eof),
-            (2, EndReason::Stop),
-            (3, EndReason::Quit),
-            (4, EndReason::Error),
-            (5, EndReason::Redirect),
-            (99, EndReason::Error),
-        ];
-        for (number, expected) in cases {
-            assert_eq!(end_reason(number), expected, "{number}");
-        }
-    }
 
     #[test]
     fn structured_values_become_nodes() {
