@@ -35,15 +35,10 @@ enum Stage {
     },
 }
 
-enum TransferNote {
-    Unseen,
-    Sdr,
-    Hdr,
-}
-
-enum HwdecLog {
-    Unseen,
-    Logged,
+/// Whether something worth a log line has been seen yet; each is said at most once.
+enum Once {
+    Pending,
+    Done,
 }
 
 enum Freshness {
@@ -60,8 +55,8 @@ struct Shared {
     duration: Option<Finite>,
     media: MediaState,
     coefficients: Coefficients,
-    transfer: TransferNote,
-    hwdec: HwdecLog,
+    transfer: Once,
+    hwdec: Once,
     grade: Freshness,
     slot_repaint: Freshness,
 }
@@ -132,8 +127,8 @@ impl Player {
                 duration: None,
                 media: MediaState::new(),
                 coefficients: Coefficients::Bt709,
-                transfer: TransferNote::Unseen,
-                hwdec: HwdecLog::Unseen,
+                transfer: Once::Pending,
+                hwdec: Once::Pending,
                 grade: Freshness::Clean,
                 slot_repaint: Freshness::Clean,
             }),
@@ -532,9 +527,9 @@ impl Player {
             }
             "video-params/gamma" => note_transfer(&mut shared.transfer, &data),
             "hwdec-current" => {
-                if let (HwdecLog::Unseen, Value::String(text)) = (&shared.hwdec, &data) {
+                if let (Once::Pending, Value::String(text)) = (&shared.hwdec, &data) {
                     log::info!("hwdec-current={text}");
-                    shared.hwdec = HwdecLog::Logged;
+                    shared.hwdec = Once::Done;
                 }
             }
             _ => {}
@@ -693,18 +688,16 @@ fn rounded(data: &Value) -> Option<i32> {
     }
 }
 
-fn note_transfer(note: &mut TransferNote, data: &Value) {
+fn note_transfer(note: &mut Once, data: &Value) {
     let Value::String(text) = data else {
         return;
     };
     let hdr = text == "pq" || text == "hlg";
-    match (&*note, hdr) {
-        (TransferNote::Unseen, false) => *note = TransferNote::Sdr,
-        (TransferNote::Unseen, true) => {
+    if let Once::Pending = note {
+        if hdr {
             log::warn!("hdr transfer {text} is stored as 8-bit rgb by the software renderer");
-            *note = TransferNote::Hdr;
         }
-        _ => {}
+        *note = Once::Done;
     }
 }
 
