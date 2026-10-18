@@ -51,7 +51,9 @@ struct Shared {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn say(text: &str) {
@@ -116,12 +118,11 @@ unsafe extern "C" fn on_update(context: *mut c_void) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mpv_open_cplugin(handle: *mut c_void) -> c_int {
     let result = catch_unwind(AssertUnwindSafe(|| run(Handle(handle.cast()))));
-    match result {
-        Ok(code) => code,
-        Err(_) => {
-            say("panicked; leaving mpv running without a player");
-            -1
-        }
+    if let Ok(code) = result {
+        code
+    } else {
+        say("panicked; leaving mpv running without a player");
+        -1
     }
 }
 

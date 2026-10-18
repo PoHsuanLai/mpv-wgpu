@@ -98,7 +98,7 @@ impl Channel {
         let mut fd = None;
         for message in ancillary.drain() {
             if let RecvAncillaryMessage::ScmRights(mut fds) = message {
-                fd = fd.or(fds.next());
+                fd = fd.or_else(|| fds.next());
             }
         }
         if received.bytes == 0 {

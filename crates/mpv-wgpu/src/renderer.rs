@@ -645,8 +645,7 @@ impl Renderer {
     fn plane_view(&self, index: usize) -> &wgpu::TextureView {
         self.slots[index]
             .as_ref()
-            .map(|tex| &tex.view)
-            .unwrap_or(&self.dummy.view)
+            .map_or(&self.dummy.view, |tex| &tex.view)
     }
 
     fn bound_view<'a>(&'a self, plane: &'a Plane<'_>, index: usize) -> &'a wgpu::TextureView {

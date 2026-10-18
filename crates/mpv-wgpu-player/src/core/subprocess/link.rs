@@ -89,7 +89,7 @@ impl Link {
             inbox = self
                 .replied
                 .wait_timeout(inbox, left)
-                .unwrap_or_else(|poison| poison.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .0;
         }
     }
